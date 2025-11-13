@@ -49,12 +49,13 @@ class EnvironmentManagerBase:
         # Initialize OCRTool if enabled
         ocr_config = config.env.ocr
         use_ocr = getattr(ocr_config, 'use_ocr', False)
+
         if use_ocr:
             self.ocr_tool = OCRTool(
                 enabled=True,
-                use_parallel=ocr_config.get('use_parallel', True) if isinstance(ocr_config, dict) else True,
-                max_workers=ocr_config.get('max_workers', None) if isinstance(ocr_config, dict) else None,
-                **{k: v for k, v in ocr_config.items() if k not in ['use_parallel', 'max_workers']} if isinstance(ocr_config, dict) else {}
+                use_parallel=ocr_config.get('use_parallel', True),
+                max_workers=ocr_config.get('max_workers', None),
+                **{k: v for k, v in ocr_config.items() if k not in ['use_parallel', 'max_workers']}
             )
         else:
             self.ocr_tool = None

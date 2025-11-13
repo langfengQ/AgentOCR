@@ -109,7 +109,7 @@ class OCRTool(BaseOCRTool):
         self.padding = padding
         self.compact_format = compact_format
         self.min_font_size = min_font_size
-        self.bg_color = bg_color
+        self.bg_color = tuple(bg_color)
         self.text_color = text_color
         self.font_path = font_path
         self.min_width = min_width
@@ -330,7 +330,7 @@ class OCRTool(BaseOCRTool):
         trajectory_contexts: Optional[List[str]],
         batch_size: Optional[int] = None,
         **override_kwargs
-    ) -> np.ndarray:
+    ) -> List[np.ndarray]:
         """
         Unified method to convert trajectory texts to images or create blank images if no history.
         
@@ -340,7 +340,7 @@ class OCRTool(BaseOCRTool):
             **override_kwargs: Parameters to override default configuration
         
         Returns:
-            Numpy array of shape (batch_size, H, W, 3) representing the images
+            List of numpy arrays representing the images
         """
         if not self.is_enabled():
             if batch_size is not None:
@@ -367,10 +367,7 @@ class OCRTool(BaseOCRTool):
                 blank_img = Image.new('RGB', (width, height), bg_color)
                 image_arrays.append(np.array(blank_img))
         
-        if not image_arrays:
-            # Return empty array if no images
-            return np.array([])
-        return np.stack(image_arrays)
+        return image_arrays
     
     def _get_blank_image_shape(self, **override_kwargs) -> Tuple[int, int, int]:
         """Get the shape of a blank image (H, W, 3)."""
@@ -382,7 +379,7 @@ class OCRTool(BaseOCRTool):
         self,
         batch_size: int,
         **override_kwargs
-    ) -> np.ndarray:
+    ) -> List[np.ndarray]:
         """
         Create a batch of blank images (useful for first step when there's no history).
         
@@ -391,7 +388,7 @@ class OCRTool(BaseOCRTool):
             **override_kwargs: Parameters to override default configuration (e.g., min_width, min_height, bg_color)
         
         Returns:
-            Numpy array of shape (batch_size, H, W, 3) representing blank images
+            List of numpy arrays representing the blank images
         """
         if not self.is_enabled():
             return np.array([])
@@ -403,27 +400,5 @@ class OCRTool(BaseOCRTool):
         blank_image = Image.new('RGB', (width, height), bg_color)
         blank_array = np.array(blank_image)
         # Stack the same blank image batch_size times
-        return np.stack([blank_array] * batch_size)
-    
-    def convert_to_numpy(
-        self,
-        trajectory_text: Union[str, List[str]],
-        **override_kwargs
-    ) -> Union[np.ndarray, List[np.ndarray]]:
-        """
-        Convert trajectory text to numpy array(s) instead of PIL Image(s).
-        
-        Args:
-            trajectory_text: Single trajectory text string or list of trajectory texts
-            **override_kwargs: Parameters to override default configuration
-        
-        Returns:
-            Numpy array or list of numpy arrays (shape: H, W, 3)
-        """
-        images = self.convert(trajectory_text, **override_kwargs)
-        
-        if isinstance(images, list):
-            return [np.array(img) if img is not None else None for img in images]
-        else:
-            return np.array(images) if images is not None else None
+        return [blank_array] * batch_size
 

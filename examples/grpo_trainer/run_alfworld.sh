@@ -2,7 +2,7 @@ set -x
 ENGINE=${1:-vllm}
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
-ocr_tool=True
+use_ocr=True
 ocr_use_parallel=True
 ocr_max_workers=8
 
@@ -12,16 +12,27 @@ train_data_size=16
 val_data_size=128
 group_size=8
 
+# Set mode based on use_ocr: visual if use_ocr=True, text otherwise
+if [ "$use_ocr" = "True" ]; then
+    mode="visual"
+    model=Qwen/Qwen2.5-VL-3B-Instruct
+else
+    mode="text"
+    model=Qwen/Qwen2.5-3B-Instruct
+fi
+
+experiment_name="grpo_${mode}_${use_ocr}"
+
 # We only use data preparation to indicate the modality and the data size.
 python3 -m examples.data_preprocess.prepare \
-    --mode 'text' \
+    --mode $mode \
     --train_data_size $train_data_size \
     --val_data_size $val_data_size
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=$HOME/data/verl-agent/text/train.parquet \
-    data.val_files=$HOME/data/verl-agent/text/test.parquet \
+    data.train_files=$HOME/data/verl-agent/$mode/train.parquet \
+    data.val_files=$HOME/data/verl-agent/$mode/test.parquet \
     data.train_batch_size=$train_data_size \
     data.val_batch_size=$val_data_size \
     data.max_prompt_length=2048 \
@@ -29,7 +40,7 @@ python3 -m verl.trainer.main_ppo \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-1.5B-Instruct \
+    actor_rollout_ref.model.path=$model \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
@@ -59,13 +70,13 @@ python3 -m verl.trainer.main_ppo \
     env.max_steps=50 \
     env.rollout.n=$group_size \
     env.resources_per_worker.num_cpus=$num_cpus_per_env_worker \
-    env.ocr.use_ocr=$ocr_tool \
+    env.ocr.use_ocr=$use_ocr \
     env.ocr.use_parallel=$ocr_use_parallel \
     env.ocr.max_workers=$ocr_max_workers \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='debug' \
-    trainer.experiment_name='grpo_qwen2.5_1.5b' \
+    trainer.project_name='AgentOCR' \
+    trainer.experiment_name=$experiment_name \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
