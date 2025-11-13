@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Tuple, Dict, Union, Any
+from typing import List, Tuple, Dict, Union, Any, Optional
 from collections import defaultdict
 import torch
 import numpy as np
@@ -134,6 +134,12 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
     def __init__(self, envs, projection_f, config):
         self.memory = SimpleMemory()
         super().__init__(envs, projection_f, config)
+        if self.ocr_tool and self.ocr_tool.is_enabled():
+            self.template_no_his = ALFWORLD_TEMPLATE_NO_HIS_OCR
+            self.template = ALFWORLD_TEMPLATE_OCR
+        else:
+            self.template_no_his = ALFWORLD_TEMPLATE_NO_HIS
+            self.template = ALFWORLD_TEMPLATE
     
     def reset(self, kwargs):
         text_obs, image_obs, infos = self.envs.reset()
@@ -144,8 +150,8 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         self.pre_text_obs = text_obs
         self.extract_task(text_obs)
 
-        full_text_obs = self.build_text_obs(text_obs, self.envs.get_admissible_commands, init=True)
-        return {'text': full_text_obs, 'image': image_obs, 'anchor': text_obs}, infos
+        full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands, init=True)
+        return {'text': full_text_obs, 'image': trajectory_images, 'anchor': text_obs}, infos
     
     def step(self, text_actions: List[str]):
         actions, valids = self.projection_f(text_actions, self.envs.get_admissible_commands)
@@ -153,7 +159,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
         self.pre_text_obs = text_obs
 
-        full_text_obs = self.build_text_obs(text_obs, self.envs.get_admissible_commands)
+        full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands)
         if infos[0].get("extra.gamefile") is None:
             infos = set_gamefile(infos, self.gamefile)
 
@@ -161,7 +167,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         for i, info in enumerate(infos):
             info['is_action_valid'] = to_numpy(valids[i])
 
-        next_observations = {'text': full_text_obs, 'image': image_obs, 'anchor': text_obs}
+        next_observations = {'text': full_text_obs, 'image': trajectory_images, 'anchor': text_obs}
         rewards = to_numpy(rewards)
         dones = to_numpy(dones)
 
@@ -177,12 +183,28 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
                 raise ValueError("Task description not found in text observation.")
         
 
-    def build_text_obs(self, text_obs: List[str], admissible_actions: List[List[str]], init: bool = False) -> List[str]:
+    def build_text_obs(self, text_obs: List[str], admissible_actions: List[List[str]], init: bool = False) -> Tuple[List[str], Optional[List]]:
         """
-        This function builds the text observation for the agent.
+        This function builds the text observation for the agent and optionally renders trajectory history as images.
+        
+        Returns:
+            Tuple of (text_observations, trajectory_images):
+            - text_observations: List of processed text observations
+            - trajectory_images: List of PIL Images (or None if OCR is disabled/not available)
         """
         postprocess_text_obs = []
-        if not init and self.config.env.history_length > 0:
+        trajectory_images = None
+        
+        # If OCRTool is enabled, generate images (blank for init, or from history)
+        if self.ocr_tool and self.ocr_tool.is_enabled():
+            if init or self.config.env.history_length <= 0:
+                memory_contexts, valid_lens = None, None
+            else:
+                memory_contexts, valid_lens = self.memory.fetch(self.config.env.history_length, obs_key="text_obs", action_key="action")
+
+            trajectory_images = self.ocr_tool.convert_texts_to_images(memory_contexts, batch_size=len(text_obs))
+        elif not init and self.config.env.history_length > 0:
+            # OCRTool not enabled, but we still need to fetch memory for text obs
             memory_contexts, valid_lens = self.memory.fetch(
                     self.config.env.history_length,
                     obs_key="text_obs",
@@ -193,12 +215,12 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
             reformatted_admissible_actions = "\n ".join(f"'{s}'" for s in admissible_actions[i] if s != 'help')
 
             if init or self.config.env.history_length <= 0:
-                obs = ALFWORLD_TEMPLATE_NO_HIS.format(
+                obs = self.template_no_his.format(
                     current_observation=text_obs[i],
                     admissible_actions=reformatted_admissible_actions
                 )
             else:
-                obs = ALFWORLD_TEMPLATE.format(
+                obs = self.template.format(
                     task_description=self.tasks[i],
                     step_count=len(self.memory[i]),
                     history_length=valid_lens[i],
@@ -209,7 +231,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
                 )
 
             postprocess_text_obs.append(obs)
-        return postprocess_text_obs
+        return postprocess_text_obs, trajectory_images
 
     def _process_batch(self, batch_idx, total_batch_list, total_infos, success):
         # Find the last entry with active masks

@@ -2,6 +2,10 @@ set -x
 ENGINE=${1:-vllm}
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
+ocr_tool=True
+ocr_use_parallel=True
+ocr_max_workers=8
+
 num_cpus_per_env_worker=0.1 # The CPU resource allocated for each environment worker. If you want to use less CPU resources, you can decrease this value.
 
 train_data_size=16
@@ -55,9 +59,12 @@ python3 -m verl.trainer.main_ppo \
     env.max_steps=50 \
     env.rollout.n=$group_size \
     env.resources_per_worker.num_cpus=$num_cpus_per_env_worker \
+    env.ocr.use_ocr=$ocr_tool \
+    env.ocr.use_parallel=$ocr_use_parallel \
+    env.ocr.max_workers=$ocr_max_workers \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='verl_agent_alfworld' \
+    trainer.project_name='debug' \
     trainer.experiment_name='grpo_qwen2.5_1.5b' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
