@@ -19,6 +19,7 @@ import numpy as np
 import os
 from agent_system.environments.prompts import *
 from collections import defaultdict
+from agentocr import OCRTool
 
 def to_numpy(data):
     if isinstance(data, torch.Tensor):
@@ -44,6 +45,20 @@ class EnvironmentManagerBase:
         self.envs = envs
         self.projection_f = projection_f
         self.config = config
+
+        # Initialize OCRTool if enabled
+        ocr_config = config.env.ocr
+        use_ocr = getattr(ocr_config, 'use_ocr', False)
+
+        if use_ocr:
+            self.ocr_tool = OCRTool(
+                enabled=True,
+                use_parallel=ocr_config.get('use_parallel', True),
+                max_workers=ocr_config.get('max_workers', None),
+                **{k: v for k, v in ocr_config.items() if k not in ['use_parallel', 'max_workers']}
+            )
+        else:
+            self.ocr_tool = None
 
     def reset(self, kwargs) -> Dict[str, Any]:
         """
