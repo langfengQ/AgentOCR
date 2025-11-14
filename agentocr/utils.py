@@ -23,6 +23,15 @@ def parse_trajectory_text(text: str) -> List[Tuple[str, str, str]]:
         # Unescape the text (handle \n, \t, etc.)
         obs_text = obs_text.replace('\\n', '\n').replace('\\t', '\t')
         action_text = action_text.replace('\\n', '\n').replace('\\t', '\t')
+        
+        # Replace all newlines with spaces to keep text on single line
+        obs_text = obs_text.replace('\n', ' ').replace('\r', ' ')
+        action_text = action_text.replace('\n', ' ').replace('\r', ' ')
+        
+        # Remove multiple consecutive spaces
+        obs_text = ' '.join(obs_text.split())
+        action_text = ' '.join(action_text.split())
+        
         pairs.append((obs_num, obs_text.strip(), action_text.strip()))
     
     return pairs
@@ -30,66 +39,15 @@ def parse_trajectory_text(text: str) -> List[Tuple[str, str, str]]:
 
 def format_trajectory_compact(pairs: List[Tuple[str, str, str]]) -> str:
     """
-    Format Observation-Action pairs into a compact format
+    Format Observation-Action pairs into a compact format without empty lines
     """
     lines = []
     for obs_num, obs_text, action_text in pairs:
         lines.append(f"[Observation {obs_num}]: {obs_text}")
         lines.append(f"[Action {obs_num}]: {action_text}")
-        lines.append("")  # empty line separator
     
-    result = "\n".join(lines).rstrip()
+    result = "\n".join(lines)
     return result
-
-
-def calculate_adaptive_font_size(
-    text: str, 
-    num_pairs: int = 0,
-    min_size: int = 10,  # 提高最小字体到10
-    max_size: int = 16
-) -> int:
-    """
-    Calculate appropriate font size - 更保守的字体大小策略，确保可读性
-    
-    Args:
-        text: Input text
-        num_pairs: Number of observation-action pairs
-        min_size: Minimum font size (default 10 for readability)
-        max_size: Maximum font size
-    
-    Returns:
-        Recommended font size
-    """
-    text_length = len(text)
-    
-    # 优先根据pair数量，但保持更大的字体
-    if num_pairs > 0:
-        if num_pairs >= 80:
-            return 10  # 大量数据时也保持10
-        elif num_pairs >= 50:
-            return 11
-        elif num_pairs >= 30:
-            return 12
-        elif num_pairs >= 20:
-            return 13
-        elif num_pairs >= 10:
-            return 14
-    
-    # 根据文本长度
-    if text_length < 1000:
-        return max_size
-    elif text_length < 3000:
-        return 15
-    elif text_length < 5000:
-        return 14
-    elif text_length < 10000:
-        return 13
-    elif text_length < 20000:
-        return 12
-    elif text_length < 40000:
-        return 11
-    else:
-        return 10
 
 
 def wrap_text_fast(text: str, max_chars_per_line: int) -> List[str]:
@@ -148,19 +106,9 @@ def find_optimal_dimensions(
     avg_char_width = font_size * 0.6
     
     # 定义合理的宽度范围（字符数）
-    # 根据字体大小调整，确保每行有足够的字符
-    if font_size >= 14:
-        min_chars = 60  # 大字体，每行至少60个字符
-        ideal_chars = 100  # 理想约100个字符
-    elif font_size >= 12:
-        min_chars = 70
-        ideal_chars = 120
-    elif font_size >= 10:
-        min_chars = 80
-        ideal_chars = 140
-    else:
-        min_chars = 90
-        ideal_chars = 150
+    # 字体大小固定为8
+    min_chars = 100
+    ideal_chars = 160
     
     # 计算对应的像素宽度
     ideal_width = int(ideal_chars * avg_char_width) + 2 * padding
@@ -236,27 +184,21 @@ def find_optimal_dimensions(
 
 def text_to_adaptive_image(
     text: str,
-    font_size: Optional[int] = None,
+    font_size: int = 8,
     padding: int = 20,
     bg_color: Tuple[int, int, int] = (255, 255, 255),
     text_color: Tuple[int, int, int] = (0, 0, 0),
     font_path: Optional[str] = None,
     min_width: int = 256,
-    max_width: int = 2048,
+    max_width: int = 1024,
     min_height: int = 256,
-    max_height: int = 2048,
-    num_pairs: int = 0,
-    min_font_size: int = 10
+    max_height: int = 1024,
+    **kwargs,
 ) -> Image.Image:
     """
     Convert text to image with optimized layout.
+    Font size is fixed at 8.
     """
-    
-    # 计算字体大小
-    if font_size is None:
-        font_size = calculate_adaptive_font_size(text, num_pairs, min_size=min_font_size)
-    else:
-        font_size = max(font_size, min_font_size)
     
     # 确保尺寸是28的倍数
     def round_to_28(value: int, min_val: int, max_val: int) -> int:
@@ -264,9 +206,9 @@ def text_to_adaptive_image(
         return max(min_val, min(max_val, rounded))
     
     min_width = max(round_to_28(min_width, 28, max_width), 252)
-    max_width = round_to_28(max_width, min_width, 2048)
+    max_width = round_to_28(max_width, min_width, 1024)
     min_height = max(round_to_28(min_height, 28, max_height), 252)
-    max_height = round_to_28(max_height, min_height, 2048)
+    max_height = round_to_28(max_height, min_height, 1024)
     
     # 加载字体
     try:
@@ -308,21 +250,20 @@ def text_to_adaptive_image(
 
 def trajectory_to_image(
     trajectory_text: str,
-    font_size: Optional[int] = None,
+    font_size: int = 8,
     padding: int = 20,
     compact_format: bool = True,
-    min_font_size: int = 10,
     **kwargs
 ) -> Image.Image:
     """
     Transform trajectory text to image with optimized layout.
+    Font size is fixed at 8.
     
     Args:
         trajectory_text: trajectory text
-        font_size: font size (auto-calculated if None)
+        font_size: font size (fixed at 8)
         padding: padding
         compact_format: whether to use compact format
-        min_font_size: minimum font size (default: 10 for better readability)
         **kwargs: other parameters passed to text_to_adaptive_image
 
     Returns:
@@ -337,12 +278,10 @@ def trajectory_to_image(
             formatted_text = trajectory_text
     else:
         formatted_text = trajectory_text
-    
+
     return text_to_adaptive_image(
         formatted_text,
-        font_size=font_size,
+        font_size,
         padding=padding,
-        num_pairs=len(pairs),
-        min_font_size=min_font_size,
         **kwargs
     )
