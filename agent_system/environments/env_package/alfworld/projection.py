@@ -37,7 +37,7 @@ def alfworld_projection(actions: List[str], action_pools: List[List[str]]):
         try:
             if start_idx == -1 or end_idx == -1:
                 # If we can't find a valid <action>...</action> block, mark as invalid
-                actions[i] = actions[i][-30:]  # 0 is invalid action for Sokoban
+                actions[i] = "" 
                 continue
 
             # Extract just the content between the tags
@@ -47,7 +47,7 @@ def alfworld_projection(actions: List[str], action_pools: List[List[str]]):
             valids[i] = 1
 
         except:
-            actions[i] = actions[i][-30:]
+            actions[i] = ""
 
         # check <think>...</think>
         think_start_idx = original_str.find("<think>")

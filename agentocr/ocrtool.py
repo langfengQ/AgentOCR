@@ -42,7 +42,7 @@ class OCRTool(BaseOCRTool):
         
         # With custom configuration
         ocr_tool = OCRTool(
-            font_size=12,
+            font_size=8,
             padding=30,
             compact_format=True
         )
@@ -72,7 +72,6 @@ class OCRTool(BaseOCRTool):
         font_size: Optional[int] = None,
         padding: int = 20,
         compact_format: bool = True,
-        min_font_size: int = 10,
         bg_color: Tuple[int, int, int] = (255, 255, 255),
         text_color: Tuple[int, int, int] = (0, 0, 0),
         font_path: Optional[str] = None,
@@ -92,7 +91,6 @@ class OCRTool(BaseOCRTool):
             font_size: Font size for text rendering (None for auto-calculation)
             padding: Padding around text in pixels
             compact_format: Whether to use compact format for trajectory display
-            min_font_size: Minimum font size for readability
             bg_color: Background color as RGB tuple
             text_color: Text color as RGB tuple
             font_path: Path to custom font file (None for default)
@@ -108,9 +106,8 @@ class OCRTool(BaseOCRTool):
         self.font_size = font_size
         self.padding = padding
         self.compact_format = compact_format
-        self.min_font_size = min_font_size
         self.bg_color = tuple(bg_color)
-        self.text_color = text_color
+        self.text_color = tuple(text_color)
         self.font_path = font_path
         self.min_width = min_width
         self.max_width = max_width
@@ -244,7 +241,6 @@ class OCRTool(BaseOCRTool):
             font_size=config['font_size'],
             padding=config['padding'],
             compact_format=config['compact_format'],
-            min_font_size=config['min_font_size'],
             bg_color=config['bg_color'],
             text_color=config['text_color'],
             font_path=config['font_path'],
@@ -268,7 +264,7 @@ class OCRTool(BaseOCRTool):
         # Extract extra kwargs that are not direct parameters
         extra_kwargs = {}
         direct_params = {
-            'font_size', 'padding', 'compact_format', 'min_font_size',
+            'font_size', 'padding', 'compact_format',
             'bg_color', 'text_color', 'font_path', 'min_width', 'max_width',
             'min_height', 'max_height'
         }
@@ -284,7 +280,6 @@ class OCRTool(BaseOCRTool):
             'font_size': override_kwargs.get('font_size', self.font_size),
             'padding': override_kwargs.get('padding', self.padding),
             'compact_format': override_kwargs.get('compact_format', self.compact_format),
-            'min_font_size': override_kwargs.get('min_font_size', self.min_font_size),
             'bg_color': override_kwargs.get('bg_color', self.bg_color),
             'text_color': override_kwargs.get('text_color', self.text_color),
             'font_path': override_kwargs.get('font_path', self.font_path),
