@@ -292,7 +292,7 @@ env:
   env_name: alfworld/AlfredTWEnv
   seed: 0
   max_steps: 50
-  history_length: 15
+  history_length: 20
   resources_per_worker: # resources for each env worker
     num_cpus: 0.1
     num_gpus: 0
@@ -318,12 +318,12 @@ env:
     use_parallel: True  # Use parallel processing for batch conversion (faster for multiple trajectories)
     max_workers: null  # Number of parallel workers (null for auto-detection: min(32, cpu_count + 4))
     font_size: 9  # Font size for text rendering (null for auto-calculation based on text length)
-    padding: 20  # Padding around text in pixels
+    padding: 5  # Padding around text in pixels
     compact_format: True  # Whether to use compact format for trajectory display
     bg_color: [255, 255, 255]  # Background color as RGB tuple
     text_color: [0, 0, 0]  # Text color as RGB tuple
     font_path: null  # Path to custom font file (null for default system font)
-    min_width: 128  # Minimum image width in pixels
+    min_width: 32  # Minimum image width in pixels
     max_width: 512  # Maximum image width in pixels
-    min_height: 128  # Minimum image height in pixels
+    min_height: 32  # Minimum image height in pixels
     max_height: 512  # Maximum image height in pixels

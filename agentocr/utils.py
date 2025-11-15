@@ -97,45 +97,46 @@ def find_optimal_dimensions(
     max_height: int
 ) -> Tuple[int, int, List[str]]:
     """
-    找到最优的图像尺寸 - 平衡宽度和高度，优先考虑可读性
+    Find optimal image dimensions - balancing width and height, prioritizing readability
     
     Returns:
         (width, height, wrapped_lines)
     """
-    line_height = int(font_size * 1.5)
+    line_height = int(font_size * 1.2)
     avg_char_width = font_size * 0.6
     
-    # 定义合理的宽度范围（字符数）
-    # 字体大小固定为8
+    # Define reasonable width range (in characters)
+    # Font size is fixed at 8
     min_chars = 100
     ideal_chars = 160
     
-    # 计算对应的像素宽度
+    # Calculate corresponding pixel width
     ideal_width = int(ideal_chars * avg_char_width) + 2 * padding
-    ideal_width = ((ideal_width + 27) // 28) * 28  # 调整到28的倍数
+    ideal_width = ((ideal_width + 27) // 28) * 28 # Adjust to multiple of 28
     ideal_width = max(min_width, min(max_width, ideal_width))
     
-    # 先尝试理想宽度
+     # Try ideal width first
     available_width = ideal_width - 2 * padding
     max_chars_per_line = int(available_width / avg_char_width)
     lines = wrap_text_fast(text, max_chars_per_line)
     
-    # 计算需要的高度
+    # Calculate required height
     total_text_height = len(lines) * line_height
     required_height = total_text_height + 2 * padding
     
-    # 如果高度合适，直接使用
+    # If height is suitable, use it directly
     if required_height <= max_height:
         height = ((required_height + 27) // 28) * 28
         height = max(min_height, min(max_height, height))
         return (ideal_width, height, lines)
     
-    # 如果高度超限，尝试增加宽度来减少行数
+    # If height exceeds limit, try increasing width to reduce line count
     best_solution = None
-    best_waste = float('inf')  # 用浪费的空间作为评分标准
+    best_waste = float('inf')  # Use wasted space as scoring metric
     
-    # 尝试不同的宽度
-    possible_widths = list(range(ideal_width, max_width + 1, 28 * 4))  # 更大的步长以提高速度
+    # Try different widths
+    possible_widths = list(range(ideal_width, max_width + 1, 28 * 4))  # Larger step for speed
+    
     
     for width in possible_widths:
         available_width = width - 2 * padding
@@ -152,7 +153,7 @@ def find_optimal_dimensions(
             height = ((required_height + 27) // 28) * 28
             height = max(min_height, min(max_height, height))
             
-            # 计算浪费的空间（越少越好）
+            # Calculate wasted space (less is better)
             used_area = len(lines) * max_chars_per_line * avg_char_width * line_height
             total_area = width * height
             waste = total_area - used_area
@@ -161,11 +162,11 @@ def find_optimal_dimensions(
                 best_waste = waste
                 best_solution = (width, height, lines)
             
-            # 如果找到了合适的解决方案，可以提前退出
-            if required_height < max_height * 0.9:  # 高度利用率不错
+            # Can exit early if good solution is found
+            if required_height < max_height * 0.9:  # Good height utilization
                 break
     
-    # 如果还是没找到，使用最大宽度并截断
+    # If still not found, use max width and truncate
     if best_solution is None:
         width = max_width
         height = max_height
@@ -184,15 +185,15 @@ def find_optimal_dimensions(
 
 def text_to_adaptive_image(
     text: str,
-    font_size: int = 8,
-    padding: int = 20,
+    font_size: int = 9,
+    padding: int = 5,
     bg_color: Tuple[int, int, int] = (255, 255, 255),
     text_color: Tuple[int, int, int] = (0, 0, 0),
     font_path: Optional[str] = None,
-    min_width: int = 256,
-    max_width: int = 1024,
-    min_height: int = 256,
-    max_height: int = 1024,
+    min_width: int = 32,
+    max_width: int = 512,
+    min_height: int = 32,
+    max_height: int = 512,
     **kwargs,
 ) -> Image.Image:
     """
@@ -200,17 +201,17 @@ def text_to_adaptive_image(
     Font size is fixed at 8.
     """
     
-    # 确保尺寸是28的倍数
+    # Ensure dimensions are multiples of 28
     def round_to_28(value: int, min_val: int, max_val: int) -> int:
         rounded = round(value / 28) * 28
         return max(min_val, min(max_val, rounded))
     
-    min_width = max(round_to_28(min_width, 28, max_width), 252)
-    max_width = round_to_28(max_width, min_width, 1024)
-    min_height = max(round_to_28(min_height, 28, max_height), 252)
-    max_height = round_to_28(max_height, min_height, 1024)
+    min_width = max(round_to_28(min_width, 28, max_width), 56)
+    max_width = round_to_28(max_width, min_width, 504)
+    min_height = max(round_to_28(min_height, 28, max_height), 56)
+    max_height = round_to_28(max_height, min_height, 504)
     
-    # 加载字体
+    # Load font
     try:
         if font_path:
             font = ImageFont.truetype(font_path, font_size)
@@ -228,18 +229,18 @@ def text_to_adaptive_image(
     except:
         font = ImageFont.load_default()
 
-    # 找到最优尺寸
+    # Find optimal dimensions
     img_width, img_height, lines = find_optimal_dimensions(
         text, font_size, padding, min_width, max_width, min_height, max_height
     )
     
-    line_height = int(font_size * 1.5)
+    line_height = int(font_size * 1.2)
 
-    # 创建图像
+    # Create image
     img = Image.new('RGB', (img_width, img_height), bg_color)
     draw = ImageDraw.Draw(img)
 
-    # 绘制文本
+    # Draw text
     y_position = padding
     for line in lines:
         draw.text((padding, y_position), line, fill=text_color, font=font)
