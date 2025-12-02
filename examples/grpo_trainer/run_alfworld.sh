@@ -1,6 +1,6 @@
 set -x
 ENGINE=${1:-vllm}
-export VLLM_ATTENTION_BACKEND=XFORMERS
+export CUDA_VISIBLE_DEVICES=0,1
 
 use_ocr=True
 ocr_use_parallel=True
@@ -16,9 +16,11 @@ group_size=8
 if [ "$use_ocr" = "True" ]; then
     mode="visual"
     model=Qwen/Qwen2.5-VL-3B-Instruct
+    max_prompt_length=2048
 else
     mode="text"
     model=Qwen/Qwen2.5-3B-Instruct
+    max_prompt_length=4096
 fi
 
 experiment_name="grpo_${mode}_${use_ocr}"
@@ -35,7 +37,7 @@ python3 -m verl.trainer.main_ppo \
     data.val_files=$HOME/data/verl-agent/$mode/test.parquet \
     data.train_batch_size=$train_data_size \
     data.val_batch_size=$val_data_size \
-    data.max_prompt_length=2048 \
+    data.max_prompt_length=$max_prompt_length \
     data.max_response_length=512 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
@@ -68,6 +70,7 @@ python3 -m verl.trainer.main_ppo \
     env.env_name=alfworld/AlfredTWEnv \
     env.seed=0 \
     env.max_steps=50 \
+    env.history_length=30 \
     env.rollout.n=$group_size \
     env.resources_per_worker.num_cpus=$num_cpus_per_env_worker \
     env.ocr.use_ocr=$use_ocr \

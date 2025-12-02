@@ -69,37 +69,40 @@ class OCRTool(BaseOCRTool):
     def __init__(
         self,
         enabled: bool = True,
-        font_size: Optional[int] = None,
-        padding: int = 20,
+        font_size: Optional[int] = 10,
+        padding: int = 10,
         compact_format: bool = True,
         bg_color: Tuple[int, int, int] = (255, 255, 255),
         text_color: Tuple[int, int, int] = (0, 0, 0),
         font_path: Optional[str] = None,
-        min_width: int = 256,
-        max_width: int = 2048,
-        min_height: int = 256,
-        max_height: int = 2048,
+        min_width: int = 28,
+        max_width: int = 1024,
+        min_height: int = 28,
+        max_height: int = 1024,
         max_workers: Optional[int] = None,
         use_parallel: bool = True,
+        use_precise: bool = True,
         **kwargs
     ):
         """
-        Initialize the OCRTool.
+        Initialize the OCRTool with ultra-optimized settings for maximum text coverage
+        and minimum resolution while maintaining clarity.
         
         Args:
             enabled: Whether the tool is enabled (can be toggled at runtime)
-            font_size: Font size for text rendering (None for auto-calculation)
+            font_size: Font size for text rendering
             padding: Padding around text in pixels
             compact_format: Whether to use compact format for trajectory display
             bg_color: Background color as RGB tuple
             text_color: Text color as RGB tuple
-            font_path: Path to custom font file (None for default)
+            font_path: Path to custom font file
             min_width: Minimum image width in pixels
             max_width: Maximum image width in pixels
             min_height: Minimum image height in pixels
             max_height: Maximum image height in pixels
             max_workers: Maximum number of parallel workers (None for auto)
             use_parallel: Whether to use parallel processing for batch conversion
+            use_precise: Use precise font measurements for optimal packing (recommended)
             **kwargs: Additional parameters passed to trajectory_to_image
         """
         self.enabled = enabled
@@ -115,7 +118,12 @@ class OCRTool(BaseOCRTool):
         self.max_height = max_height
         self.max_workers = max_workers if max_workers is not None else min(32, (os.cpu_count() or 1) + 4)
         self.use_parallel = use_parallel
+        self.use_precise = use_precise
         self.kwargs = kwargs
+        # Initialize folder for saving trajectory images
+        self.trajectory_images_dir = os.path.join(os.getcwd(), "logs/trajectory_images")
+        os.makedirs(self.trajectory_images_dir, exist_ok=True)
+        self.image_save_counter = 0
     
     def convert(
         self,
@@ -219,14 +227,14 @@ class OCRTool(BaseOCRTool):
         config: Dict[str, Any]
     ) -> Image.Image:
         """
-        Convert a single trajectory text to an image.
+        Convert a single trajectory text to an image with optimized packing.
         
         Args:
             trajectory_text: Trajectory text string
             config: Configuration dictionary
         
         Returns:
-            PIL Image object
+            PIL Image object with optimally packed text
         """
         if not trajectory_text or not trajectory_text.strip():
             # Return a blank image if trajectory is empty
@@ -248,6 +256,7 @@ class OCRTool(BaseOCRTool):
             max_width=config['max_width'],
             min_height=config['min_height'],
             max_height=config['max_height'],
+            use_precise=config['use_precise'],
             **config['extra_kwargs']
         )
     
@@ -266,7 +275,7 @@ class OCRTool(BaseOCRTool):
         direct_params = {
             'font_size', 'padding', 'compact_format',
             'bg_color', 'text_color', 'font_path', 'min_width', 'max_width',
-            'min_height', 'max_height'
+            'min_height', 'max_height', 'use_precise'
         }
         
         for key, value in override_kwargs.items():
@@ -287,6 +296,7 @@ class OCRTool(BaseOCRTool):
             'max_width': override_kwargs.get('max_width', self.max_width),
             'min_height': override_kwargs.get('min_height', self.min_height),
             'max_height': override_kwargs.get('max_height', self.max_height),
+            'use_precise': override_kwargs.get('use_precise', self.use_precise),
             'extra_kwargs': extra_kwargs
         }
     
@@ -324,6 +334,9 @@ class OCRTool(BaseOCRTool):
         self,
         trajectory_contexts: Optional[List[str]],
         batch_size: Optional[int] = None,
+        save_img: bool = False,
+        compression_factor: Optional[float] = 1.0,
+        resample_method: int = Image.LANCZOS,
         **override_kwargs
     ) -> List[np.ndarray]:
         """
@@ -332,7 +345,10 @@ class OCRTool(BaseOCRTool):
         Args:
             trajectory_contexts: List of trajectory text strings (from memory.fetch()), or None/empty for blank images
             batch_size: Number of images to create (required if trajectory_contexts is None/empty)
-            **override_kwargs: Parameters to override default configuration
+            save_img: Whether to save the generated images to disk
+            compression_factor: compression factor (should be > 1.0). If None, no compression applied.
+            resample_method: PIL resampling method for compression (default: Image.LANCZOS for best quality)
+            **override_kwargs: Parameters to override default configuration (can include 'step_info', 'env_idx' for custom filenames)
         
         Returns:
             List of numpy arrays representing the images
@@ -346,21 +362,33 @@ class OCRTool(BaseOCRTool):
         if trajectory_contexts is None or len(trajectory_contexts) == 0:
             if batch_size is None:
                 raise ValueError("batch_size must be provided when trajectory_contexts is None or empty")
-            return self.create_blank_images(batch_size, **override_kwargs)
+            image_arrays = self.create_blank_images(batch_size, **override_kwargs)
+        else:
+            # Convert trajectory texts to images
+            images = self.convert_batch(trajectory_contexts, **override_kwargs)
+            image_arrays = []
+            for img in images:
+                if img is not None:
+                    image_arrays.append(np.array(img))
+                else:
+                    # Create blank image for None values to maintain batch size
+                    width = override_kwargs.get('min_width', self.min_width)
+                    height = override_kwargs.get('min_height', self.min_height)
+                    bg_color = override_kwargs.get('bg_color', self.bg_color)
+                    blank_img = Image.new('RGB', (width, height), bg_color)
+                    image_arrays.append(np.array(blank_img))
         
-        # Convert trajectory texts to images
-        images = self.convert_batch(trajectory_contexts, **override_kwargs)
-        image_arrays = []
-        for img in images:
-            if img is not None:
-                image_arrays.append(np.array(img))
-            else:
-                # Create blank image for None values to maintain batch size
-                width = override_kwargs.get('min_width', self.min_width)
-                height = override_kwargs.get('min_height', self.min_height)
-                bg_color = override_kwargs.get('bg_color', self.bg_color)
-                blank_img = Image.new('RGB', (width, height), bg_color)
-                image_arrays.append(np.array(blank_img))
+        # Apply compression if specified
+        if compression_factor > 1.0:
+            image_arrays = self.compress_image_arrays(
+                image_arrays,
+                compression_factor=compression_factor,
+                resample_method=resample_method
+            )
+        
+        # Save images if requested (save after compression to save disk space)
+        if save_img and image_arrays:
+            self._save_images(image_arrays, **override_kwargs)
         
         return image_arrays
     
@@ -396,4 +424,118 @@ class OCRTool(BaseOCRTool):
         blank_array = np.array(blank_image)
         # Stack the same blank image batch_size times
         return [blank_array] * batch_size
+    
+    def compress_image_arrays(
+        self,
+        image_arrays: Union[np.ndarray, List[np.ndarray]],
+        compression_factor: float,
+        keep_aspect_ratio: bool = True,
+        resample_method: int = Image.LANCZOS
+    ) -> Union[np.ndarray, List[np.ndarray]]:
+        """
+        Compress image arrays by a given factor while maintaining image clarity.
+        
+        Uses high-quality resampling (Lanczos by default) to preserve sharpness and details
+        during downscaling. This is particularly useful for reducing memory usage and 
+        computational costs while keeping OCR-readable images.
+        
+        Args:
+            image_arrays: Single numpy array or list of numpy arrays to compress
+            compression_factor: Factor by which to compress the images (e.g., 2.0 means halving the dimensions)
+                              Must be > 1 to reduce size.
+            keep_aspect_ratio: Whether to maintain the original aspect ratio (default: True)
+            resample_method: PIL resampling method. Options:
+                           - Image.LANCZOS (default): Highest quality for downsampling
+                           - Image.BICUBIC: Good quality, faster than Lanczos
+                           - Image.BILINEAR: Faster but lower quality
+                           - Image.NEAREST: Fastest but lowest quality
+        
+        Returns:
+            Compressed image array(s) in the same format as input (single array or list)
+        
+        Examples:
+            >>> # Compress single image by 2x (halve dimensions)
+            >>> compressed = ocr_tool.compress_image_arrays(image, 2.0)
+            
+            >>> # Compress batch of images by 3x
+            >>> compressed_batch = ocr_tool.compress_image_arrays(images, 3.0)
+            
+            >>> # Use faster but lower quality resampling
+            >>> compressed = ocr_tool.compress_image_arrays(image, 2.0, resample_method=Image.BICUBIC)
+        """
+        if compression_factor <= 1.0:
+            raise ValueError(f"compression_factor must be > 1.0, got {compression_factor}")
+        
+        # Handle single array vs list of arrays
+        single_input = not isinstance(image_arrays, list)
+        if single_input:
+            image_arrays = [image_arrays]
+        
+        compressed_arrays = []
+        
+        for img_array in image_arrays:
+            if img_array is None or not isinstance(img_array, np.ndarray):
+                compressed_arrays.append(img_array)
+                continue
+            
+            # Get original dimensions
+            height, width = img_array.shape[:2]
+            
+            # Calculate new dimensions
+            new_width = max(1, int(width / compression_factor))
+            new_height = max(1, int(height / compression_factor))
+            
+            # Ensure minimum dimensions for readability
+            new_width = max(new_width, self.min_width)
+            new_height = max(new_height, self.min_height)
+            
+            # Convert numpy array to PIL Image
+            if img_array.dtype != np.uint8:
+                img_array = img_array.astype(np.uint8)
+            
+            img = Image.fromarray(img_array)
+            
+            # Resize using high-quality resampling
+            compressed_img = img.resize((new_width, new_height), resample=resample_method)
+            
+            # Convert back to numpy array
+            compressed_array = np.array(compressed_img)
+            compressed_arrays.append(compressed_array)
+        
+        # Return in the same format as input
+        return compressed_arrays[0] if single_input else compressed_arrays
+    
+    def _save_images(
+        self,
+        image_arrays: List[np.ndarray],
+        **kwargs
+    ) -> None:
+        """
+        Save trajectory images to disk.
+        
+        Args:
+            image_arrays: List of numpy arrays representing images
+            **kwargs: Additional parameters for customizing filenames (e.g., 'step_info', 'env_idx')
+        """
+        from datetime import datetime
+        
+        step_info = kwargs.get('step_info', 'unknown')
+        
+        for i, img_array in enumerate(image_arrays):
+            if img_array is not None:
+                # Convert numpy array to PIL Image
+                if isinstance(img_array, np.ndarray):
+                    img = Image.fromarray(img_array.astype(np.uint8))
+                else:
+                    img = img_array
+                
+                # Create filename with optional custom info
+                env_idx = kwargs.get('env_idx', i)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"trajectory_env{env_idx}_{step_info}_{self.image_save_counter:06d}_{timestamp}.png"
+                filepath = os.path.join(self.trajectory_images_dir, filename)
+                img.save(filepath)
+                print(f"Saved trajectory image to: {filepath}")
+        
+        self.image_save_counter += 1
 

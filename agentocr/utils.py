@@ -50,16 +50,17 @@ def format_trajectory_compact(pairs: List[Tuple[str, str, str]]) -> str:
     return result
 
 
-def wrap_text_fast(text: str, max_chars_per_line: int) -> List[str]:
+def wrap_text_fast(text: str, max_chars_per_line: int) -> List[Tuple[str, bool]]:
     """
     Fast text wrapping based on character count.
+    Returns a list of tuples (line_text, is_paragraph_end) to track paragraph boundaries.
     """
     lines = []
     paragraphs = text.split('\n')
     
-    for paragraph in paragraphs:
+    for para_idx, paragraph in enumerate(paragraphs):
         if not paragraph.strip():
-            lines.append("")
+            lines.append(("", True))
             continue
         
         words = paragraph.split()
@@ -72,120 +73,206 @@ def wrap_text_fast(text: str, max_chars_per_line: int) -> List[str]:
                 current_line = test_line
             else:
                 if current_line:
-                    lines.append(current_line)
+                    lines.append((current_line, False))
                 
                 if len(word) > max_chars_per_line:
                     for i in range(0, len(word), max_chars_per_line):
-                        lines.append(word[i:i + max_chars_per_line])
+                        lines.append((word[i:i + max_chars_per_line], False))
                     current_line = ""
                 else:
                     current_line = word
         
         if current_line:
-            lines.append(current_line)
+            # Mark the last line of each paragraph
+            is_last_para = para_idx == len(paragraphs) - 1
+            lines.append((current_line, not is_last_para))
     
     return lines
 
 
+def wrap_text_precise(text: str, max_width: int, font, font_size: int) -> List[Tuple[str, bool]]:
+    """
+    Precise text wrapping using actual font measurements for optimal packing.
+    Returns a list of tuples (line_text, is_paragraph_end) to track paragraph boundaries.
+    """
+    lines = []
+    paragraphs = text.split('\n')
+    
+    for para_idx, paragraph in enumerate(paragraphs):
+        if not paragraph.strip():
+            lines.append(("", True))
+            continue
+        
+        words = paragraph.split()
+        current_line = ""
+        
+        for word in words:
+            test_line = current_line + (" " if current_line else "") + word
+            
+            # Use actual font measurement
+            try:
+                bbox = font.getbbox(test_line)
+                text_width = bbox[2] - bbox[0]
+            except:
+                # Fallback to character-based estimation
+                text_width = len(test_line) * font_size * 0.6
+            
+            if text_width <= max_width:
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append((current_line, False))
+                current_line = word
+        
+        if current_line:
+            # Mark the last line of each paragraph
+            is_last_para = para_idx == len(paragraphs) - 1
+            lines.append((current_line, not is_last_para))
+    
+    return lines
+
+
+def get_font_metrics(font, font_size: int) -> Tuple[float, int]:
+    """
+    Get accurate font metrics for optimal layout calculation.
+    Returns (average_char_width, line_height)
+    
+    Optimized for maximum density: minimal line spacing while maintaining readability.
+    """
+    # Test with a representative set of characters
+    sample_text = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,;:!?()[]{}@#$%^&*-_=+/\\"
+    
+    try:
+        bbox = font.getbbox(sample_text)
+        total_width = bbox[2] - bbox[0]
+        avg_char_width = total_width / len(sample_text)
+        line_height = bbox[3] - bbox[1]
+        # Ultra-compact: minimal spacing (1.05x instead of 1.2x)
+        # This is the sweet spot between density and readability
+        line_height = int(line_height * 1.1)
+    except:
+        # Fallback to estimates with compact spacing
+        avg_char_width = font_size * 0.6  # Slightly more aggressive
+        line_height = int(font_size * 1.1)
+    
+    return avg_char_width, line_height
+
+
 def find_optimal_dimensions(
     text: str,
+    font,
     font_size: int,
     padding: int,
     min_width: int,
     max_width: int,
     min_height: int,
-    max_height: int
-) -> Tuple[int, int, List[str]]:
+    max_height: int,
+    use_precise: bool = False
+) -> Tuple[int, int, List[Tuple[str, bool]]]:
     """
-    找到最优的图像尺寸 - 平衡宽度和高度，优先考虑可读性
+    Find optimal image dimensions using binary search and precise font metrics.
+    Goal: Maximum text coverage with minimum resolution while maintaining clarity.
     
     Returns:
-        (width, height, wrapped_lines)
+        (width, height, wrapped_lines) where wrapped_lines is List[Tuple[str, bool]]
     """
-    line_height = int(font_size * 1.5)
-    avg_char_width = font_size * 0.6
+    # Get accurate font metrics
+    avg_char_width, line_height = get_font_metrics(font, font_size)
     
-    # 定义合理的宽度范围（字符数）
-    # 字体大小固定为8
-    min_chars = 100
-    ideal_chars = 160
+    # Calculate text length to estimate optimal starting point
+    text_length = len(text.replace('\n', ' '))
+    total_text_area = text_length * avg_char_width * line_height
     
-    # 计算对应的像素宽度
-    ideal_width = int(ideal_chars * avg_char_width) + 2 * padding
-    ideal_width = ((ideal_width + 27) // 28) * 28  # 调整到28的倍数
-    ideal_width = max(min_width, min(max_width, ideal_width))
+    # Start with a square-ish aspect ratio for better packing
+    aspect_ratio = 1.5  # Slightly wider than tall for better readability
+    estimated_width = int((total_text_area * aspect_ratio) ** 0.5)
+    estimated_width = max(min_width, min(max_width, estimated_width))
     
-    # 先尝试理想宽度
-    available_width = ideal_width - 2 * padding
-    max_chars_per_line = int(available_width / avg_char_width)
-    lines = wrap_text_fast(text, max_chars_per_line)
-    
-    # 计算需要的高度
-    total_text_height = len(lines) * line_height
-    required_height = total_text_height + 2 * padding
-    
-    # 如果高度合适，直接使用
-    if required_height <= max_height:
-        height = ((required_height + 27) // 28) * 28
-        height = max(min_height, min(max_height, height))
-        return (ideal_width, height, lines)
-    
-    # 如果高度超限，尝试增加宽度来减少行数
-    best_solution = None
-    best_waste = float('inf')  # 用浪费的空间作为评分标准
-    
-    # 尝试不同的宽度
-    possible_widths = list(range(ideal_width, max_width + 1, 28 * 4))  # 更大的步长以提高速度
-    
-    for width in possible_widths:
+    def evaluate_width(width: int) -> Tuple[int, List[Tuple[str, bool]], bool]:
+        """
+        Evaluate a given width and return (height, lines, fits).
+        Returns fits=True if text fits within max_height.
+        """
         available_width = width - 2 * padding
-        max_chars_per_line = int(available_width / avg_char_width)
         
-        if max_chars_per_line < min_chars:
-            continue
+        if use_precise:
+            lines = wrap_text_precise(text, available_width, font, font_size)
+        else:
+            max_chars_per_line = int(available_width / avg_char_width)
+            lines = wrap_text_fast(text, max_chars_per_line)
         
-        lines = wrap_text_fast(text, max_chars_per_line)
-        total_text_height = len(lines) * line_height
-        required_height = total_text_height + 2 * padding
+        # Calculate height considering paragraph spacing (0.5 line spacing after each paragraph)
+        num_paragraph_breaks = sum(1 for _, is_para_end in lines if is_para_end)
+        required_height = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.4) + 2 * padding
+        fits = required_height <= max_height
         
-        if required_height <= max_height:
-            height = ((required_height + 27) // 28) * 28
-            height = max(min_height, min(max_height, height))
-            
-            # 计算浪费的空间（越少越好）
-            used_area = len(lines) * max_chars_per_line * avg_char_width * line_height
-            total_area = width * height
-            waste = total_area - used_area
-            
-            if waste < best_waste:
-                best_waste = waste
-                best_solution = (width, height, lines)
-            
-            # 如果找到了合适的解决方案，可以提前退出
-            if required_height < max_height * 0.9:  # 高度利用率不错
-                break
+        return required_height, lines, fits
     
-    # 如果还是没找到，使用最大宽度并截断
+    # Binary search for minimum width that fits all text
+    left, right = estimated_width, max_width
+    best_solution = None
+    best_area = float('inf')
+
+    while left <= right:
+        mid = (left + right) // 2
+        if mid < left:
+            mid = left
+        if mid > right:
+            mid = right
+            
+        required_height, lines, fits = evaluate_width(mid)
+        
+        if fits:
+            # Text fits! Try to minimize area
+            height = required_height
+            height = max(min_height, min(max_height, height))
+            area = mid * height
+            
+            if area < best_area:
+                best_area = area
+                best_solution = (mid, height, lines)
+            
+            # Try smaller width
+            right = mid - 1
+        else:
+            # Doesn't fit, need wider
+            left = mid + 1
+
+    # If no solution found in binary search, use max dimensions with truncation
     if best_solution is None:
         width = max_width
         height = max_height
         available_width = width - 2 * padding
-        max_chars_per_line = int(available_width / avg_char_width)
-        lines = wrap_text_fast(text, max_chars_per_line)
         
+        if use_precise:
+            lines = wrap_text_precise(text, available_width, font, font_size)
+        else:
+            max_chars_per_line = int(available_width / avg_char_width)
+            lines = wrap_text_fast(text, max_chars_per_line)
+        
+        # Truncate lines that don't fit (considering paragraph spacing)
         available_height = height - 2 * padding
         max_lines = int(available_height / line_height)
         lines = lines[:max_lines]
         
         best_solution = (width, height, lines)
-    
-    return best_solution
+
+    # Final optimization: try to reduce height if there's too much empty space
+    width, height, lines = best_solution
+    num_paragraph_breaks = sum(1 for _, is_para_end in lines if is_para_end)
+    actual_height_needed = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.4) + 2 * padding
+    actual_height_needed = max(min_height, actual_height_needed)
+
+    if actual_height_needed < height:
+        height = actual_height_needed
+
+    return (width, height, lines)
 
 
 def text_to_adaptive_image(
     text: str,
     font_size: int = 8,
-    padding: int = 20,
+    padding: int = 8,
     bg_color: Tuple[int, int, int] = (255, 255, 255),
     text_color: Tuple[int, int, int] = (0, 0, 0),
     font_path: Optional[str] = None,
@@ -193,57 +280,104 @@ def text_to_adaptive_image(
     max_width: int = 1024,
     min_height: int = 256,
     max_height: int = 1024,
+    use_precise: bool = True,
     **kwargs,
 ) -> Image.Image:
     """
-    Convert text to image with optimized layout.
-    Font size is fixed at 8.
+    Convert text to image with ultimate optimization for maximum text coverage
+    and minimum resolution while maintaining clarity.
+    
+    Args:
+        text: Input text to render
+        font_size: Font size (default 8 for dense packing)
+        padding: Padding in pixels (optimized for minimal waste)
+        bg_color: Background color RGB tuple
+        text_color: Text color RGB tuple
+        font_path: Custom font path (condensed fonts recommended)
+        min_width: Minimum image width
+        max_width: Maximum image width
+        min_height: Minimum image height
+        max_height: Maximum image height
+        use_precise: Use precise font measurements (recommended, slightly slower but optimal)
+    
+    Returns:
+        PIL Image with optimally packed text
     """
     
-    # 确保尺寸是28的倍数
-    def round_to_28(value: int, min_val: int, max_val: int) -> int:
-        rounded = round(value / 28) * 28
-        return max(min_val, min(max_val, rounded))
+    # Optimize padding based on font size - smaller fonts need less padding
+    optimized_padding = max(int(font_size * 1.0), padding // 2)
     
-    min_width = max(round_to_28(min_width, 28, max_width), 252)
-    max_width = round_to_28(max_width, min_width, 1024)
-    min_height = max(round_to_28(min_height, 28, max_height), 252)
-    max_height = round_to_28(max_height, min_height, 1024)
+    # Ensure dimensions are multiples of 28
+    # def round_to_28(value: int, min_val: int, max_val: int) -> int:
+    #     rounded = round(value / 28) * 28
+    #     return max(min_val, min(max_val, rounded))
     
-    # 加载字体
-    try:
-        if font_path:
-            font = ImageFont.truetype(font_path, font_size)
-        else:
-            try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", font_size)
-            except:
-                try:
-                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
-                except:
-                    try:
-                        font = ImageFont.truetype("Arial.ttf", font_size)
-                    except:
-                        font = ImageFont.load_default()
-    except:
+    # min_width = round_to_28(min_width, 28, max_width)
+    # max_width = round_to_28(max_width, min_width, 2048)
+    # min_height = round_to_28(min_height, 28, max_height)
+    # max_height = round_to_28(max_height, min_height, 2048)
+
+    min_width = max(min_width, 28)
+    max_width = min(max_width, 1024)
+
+    # Load font with fallback chain
+    font = None
+    font_paths = []
+    
+    if font_path:
+        font_paths.append(font_path)
+    
+    # Prioritize monospace fonts for better packing efficiency
+    font_paths.extend([
+        # # Condensed fonts (highest priority for density)
+        # "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
+        # "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Regular.ttf",
+        # "/usr/share/fonts/truetype/liberation2/LiberationSansNarrow-Regular.ttf",
+        # # Monospace fonts (good for consistency)
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+        # Regular fonts (fallback)
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Monaco.ttf",  # macOS
+        "C:\\Windows\\Fonts\\consola.ttf",   # Windows
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "Arial.ttf",
+    ])
+    
+    for path in font_paths:
+        try:
+            font = ImageFont.truetype(path, font_size)
+            break
+        except:
+            continue
+    
+    if font is None:
         font = ImageFont.load_default()
 
-    # 找到最优尺寸
+    # Find optimal dimensions using binary search and precise measurements
     img_width, img_height, lines = find_optimal_dimensions(
-        text, font_size, padding, min_width, max_width, min_height, max_height
+        text, font, font_size, optimized_padding, 
+        min_width, max_width, min_height, max_height,
+        use_precise=use_precise
     )
     
-    line_height = int(font_size * 1.5)
+    # Get actual line height from font metrics
+    _, line_height = get_font_metrics(font, font_size)
 
-    # 创建图像
+    # Create image with optimized dimensions
     img = Image.new('RGB', (img_width, img_height), bg_color)
     draw = ImageDraw.Draw(img)
 
-    # 绘制文本
-    y_position = padding
-    for line in lines:
-        draw.text((padding, y_position), line, fill=text_color, font=font)
+    # Render text with optimal spacing and 0.5x line spacing after paragraphs
+    y_position = optimized_padding
+    paragraph_spacing = int(line_height * 0.4)
+    
+    for line_text, is_paragraph_end in lines:
+        draw.text((optimized_padding, y_position), line_text, fill=text_color, font=font)
         y_position += line_height
+        # Add extra spacing after paragraph end
+        if is_paragraph_end:
+            y_position += paragraph_spacing
     
     return img
 
@@ -251,23 +385,25 @@ def text_to_adaptive_image(
 def trajectory_to_image(
     trajectory_text: str,
     font_size: int = 8,
-    padding: int = 20,
+    padding: int = 8,
     compact_format: bool = True,
+    use_precise: bool = True,
     **kwargs
 ) -> Image.Image:
     """
-    Transform trajectory text to image with optimized layout.
-    Font size is fixed at 8.
+    Transform trajectory text to image with ultimate optimization.
+    Achieves maximum text coverage with minimum resolution while maintaining clarity.
     
     Args:
-        trajectory_text: trajectory text
-        font_size: font size (fixed at 8)
-        padding: padding
-        compact_format: whether to use compact format
-        **kwargs: other parameters passed to text_to_adaptive_image
+        trajectory_text: Trajectory text to render
+        font_size: Font size (default 8 for optimal density)
+        padding: Padding in pixels (optimized to 8 for minimal waste)
+        compact_format: Whether to use compact format for trajectory
+        use_precise: Use precise font measurements for optimal packing (recommended)
+        **kwargs: Additional parameters passed to text_to_adaptive_image
 
     Returns:
-        PIL Image object
+        PIL Image object with optimally packed text
     """
     pairs = []
     if "[Observation" in trajectory_text and "Action" in trajectory_text:
@@ -281,7 +417,8 @@ def trajectory_to_image(
 
     return text_to_adaptive_image(
         formatted_text,
-        font_size,
+        font_size=font_size,
         padding=padding,
+        use_precise=use_precise,
         **kwargs
     )
