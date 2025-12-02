@@ -202,7 +202,9 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
             else:
                 memory_contexts, valid_lens = self.memory.fetch(self.config.env.history_length, obs_key="text_obs", action_key="action")
 
-            trajectory_images = self.ocr_tool.convert_texts_to_images(memory_contexts, batch_size=len(text_obs))
+            # Get step count from memory (use first env's memory length as reference)
+            step_info = str(len(self.memory[0])) if len(self.memory) > 0 else "0"
+            trajectory_images = self.ocr_tool.convert_texts_to_images(memory_contexts, batch_size=len(text_obs), compression_factor=1.0, save_img=False, step_info=step_info)
         elif not init and self.config.env.history_length > 0:
             # OCRTool not enabled, but we still need to fetch memory for text obs
             memory_contexts, valid_lens = self.memory.fetch(
