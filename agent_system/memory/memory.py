@@ -91,7 +91,8 @@ class SimpleMemory(BaseMemory):
                 act = rec[action_key]
                 obs = rec[obs_key]
                 lines.append(
-                    f"[Observation {step_num}: '{obs}', Action {step_num}: '{act}']"
+                    # remove \n
+                    f"[Observation {step_num}]: {obs.replace('\n', ' ')}\n[Action {step_num}]: {act.replace('\n', ' ')}"
                 )
 
             memory_contexts.append("\n".join(lines))

@@ -1,90 +1,157 @@
 from PIL import Image, ImageDraw, ImageFont
 from typing import Tuple, Optional, List
 import re
+from functools import lru_cache
 
-def parse_trajectory_text(text: str) -> List[Tuple[str, str, str]]:
+# Global font cache
+_FONT_CACHE = {}
+
+
+def _get_cached_font(font_path: Optional[str], font_size: int) -> ImageFont.FreeTypeFont:
     """
-    Extract Observation and Action pairs from trajectory text.
-
-    Args:
-        text: The original trajectory text, can contain multiple rounds
-
-    Returns:
-        A list of tuples in the format [(obs_num, obs_text, action_text), ...]
+    Get or create a cached font object to avoid repeated font loading.
+    This provides significant speedup for repeated text rendering.
     """
-    pairs = []
+    cache_key = (font_path or "default", font_size)
     
-    # Match [Observation N: '...', Action N: '...'] format
-    pattern = r"\[Observation\s+(\d+):\s*'(.*?)',\s*Action\s+\d+:\s*'(.*?)'\]"
-    matches = re.findall(pattern, text, re.DOTALL)
-    
-    for match in matches:
-        obs_num, obs_text, action_text = match
-        # Unescape the text (handle \n, \t, etc.)
-        obs_text = obs_text.replace('\\n', '\n').replace('\\t', '\t')
-        action_text = action_text.replace('\\n', '\n').replace('\\t', '\t')
+    if cache_key not in _FONT_CACHE:
+        font = None
+        font_paths = []
         
-        # Replace all newlines with spaces to keep text on single line
-        obs_text = obs_text.replace('\n', ' ').replace('\r', ' ')
-        action_text = action_text.replace('\n', ' ').replace('\r', ' ')
+        if font_path:
+            font_paths.append(font_path)
         
-        # Remove multiple consecutive spaces
-        obs_text = ' '.join(obs_text.split())
-        action_text = ' '.join(action_text.split())
+        # Prioritize monospace fonts for better packing efficiency
+        font_paths.extend([
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/System/Library/Fonts/Monaco.ttf",  # macOS
+            "C:\\Windows\\Fonts\\consola.ttf",   # Windows
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "Arial.ttf",
+        ])
         
-        pairs.append((obs_num, obs_text.strip(), action_text.strip()))
+        for path in font_paths:
+            try:
+                font = ImageFont.truetype(path, font_size)
+                break
+            except:
+                continue
+        
+        if font is None:
+            font = ImageFont.load_default()
+        
+        _FONT_CACHE[cache_key] = font
     
-    return pairs
+    return _FONT_CACHE[cache_key]
 
 
-def format_trajectory_compact(pairs: List[Tuple[str, str, str]]) -> str:
-    """
-    Format Observation-Action pairs into a compact format without empty lines
-    """
-    lines = []
-    for obs_num, obs_text, action_text in pairs:
-        lines.append(f"[Observation {obs_num}]: {obs_text}")
-        lines.append(f"[Action {obs_num}]: {action_text}")
+# @lru_cache(maxsize=128)
+# def parse_trajectory_text(text: str) -> Tuple[Tuple[str, str, str], ...]:
+#     """
+#     Extract Observation and Action pairs from trajectory text.
+
+#     Args:
+#         text: The original trajectory text, can contain multiple rounds
+
+#     Returns:
+#         A tuple of tuples in the format ((obs_num, obs_text, action_text), ...)
+#         (Changed to tuple for caching compatibility)
+#     """
+#     pairs = []
     
-    result = "\n".join(lines)
-    return result
+#     # Match [Observation N: '...', Action N: '...'] format
+#     pattern = r"\[Observation\s+(\d+):\s*'(.*?)',\s*Action\s+\d+:\s*'(.*?)'\]"
+#     matches = re.findall(pattern, text, re.DOTALL)
+    
+#     for match in matches:
+#         obs_num, obs_text, action_text = match
+#         # Unescape the text (handle \n, \t, etc.)
+#         obs_text = obs_text.replace('\\n', '\n').replace('\\t', '\t')
+#         action_text = action_text.replace('\\n', '\n').replace('\\t', '\t')
+        
+#         # Replace all newlines with spaces to keep text on single line
+#         obs_text = obs_text.replace('\n', ' ').replace('\r', ' ')
+#         action_text = action_text.replace('\n', ' ').replace('\r', ' ')
+        
+#         # Remove multiple consecutive spaces
+#         obs_text = ' '.join(obs_text.split())
+#         action_text = ' '.join(action_text.split())
+        
+#         pairs.append((obs_num, obs_text, action_text))
+    
+#     return tuple(pairs)
+
+
+# def format_trajectory_compact(pairs: List[Tuple[str, str, str]]) -> str:
+#     """
+#     Format Observation-Action pairs into a compact format without empty lines
+#     """
+#     lines = []
+#     for obs_num, obs_text, action_text in pairs:
+#         lines.append(f"[Observation {obs_num}]: {obs_text}")
+#         lines.append(f"[Action {obs_num}]: {action_text}")
+    
+#     result = "\n".join(lines)
+#     return result
 
 
 def wrap_text_fast(text: str, max_chars_per_line: int) -> List[Tuple[str, bool]]:
     """
     Fast text wrapping based on character count.
     Returns a list of tuples (line_text, is_paragraph_end) to track paragraph boundaries.
+    Optimized for speed with early returns and minimal operations.
     """
+    if not text:
+        return []
+    
     lines = []
     paragraphs = text.split('\n')
+    num_paragraphs = len(paragraphs)
     
     for para_idx, paragraph in enumerate(paragraphs):
-        if not paragraph.strip():
+        if not paragraph:
             lines.append(("", True))
+            continue
+        
+        # Fast path for short paragraphs
+        if len(paragraph) <= max_chars_per_line:
+            is_last_para = para_idx == num_paragraphs - 1
+            lines.append((paragraph, not is_last_para))
             continue
         
         words = paragraph.split()
         current_line = ""
+        current_len = 0
         
         for word in words:
-            test_line = current_line + (" " if current_line else "") + word
+            word_len = len(word)
+            test_len = current_len + (1 if current_len else 0) + word_len
             
-            if len(test_line) <= max_chars_per_line:
-                current_line = test_line
+            if test_len <= max_chars_per_line:
+                if current_line:
+                    current_line += " " + word
+                    current_len = test_len
+                else:
+                    current_line = word
+                    current_len = word_len
             else:
                 if current_line:
                     lines.append((current_line, False))
                 
-                if len(word) > max_chars_per_line:
-                    for i in range(0, len(word), max_chars_per_line):
+                if word_len > max_chars_per_line:
+                    # Split long words
+                    for i in range(0, word_len, max_chars_per_line):
                         lines.append((word[i:i + max_chars_per_line], False))
                     current_line = ""
+                    current_len = 0
                 else:
                     current_line = word
+                    current_len = word_len
         
         if current_line:
-            # Mark the last line of each paragraph
-            is_last_para = para_idx == len(paragraphs) - 1
+            is_last_para = para_idx == num_paragraphs - 1
             lines.append((current_line, not is_last_para))
     
     return lines
@@ -99,7 +166,7 @@ def wrap_text_precise(text: str, max_width: int, font, font_size: int) -> List[T
     paragraphs = text.split('\n')
     
     for para_idx, paragraph in enumerate(paragraphs):
-        if not paragraph.strip():
+        if not paragraph:
             lines.append(("", True))
             continue
         
@@ -132,13 +199,23 @@ def wrap_text_precise(text: str, max_width: int, font, font_size: int) -> List[T
     return lines
 
 
+# Cache for font metrics to avoid repeated calculations
+_FONT_METRICS_CACHE = {}
+
 def get_font_metrics(font, font_size: int) -> Tuple[float, int]:
     """
     Get accurate font metrics for optimal layout calculation.
     Returns (average_char_width, line_height)
     
     Optimized for maximum density: minimal line spacing while maintaining readability.
+    Cached for performance.
     """
+    # Use font object id and size as cache key
+    cache_key = (id(font), font_size)
+    
+    if cache_key in _FONT_METRICS_CACHE:
+        return _FONT_METRICS_CACHE[cache_key]
+    
     # Test with a representative set of characters
     sample_text = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,;:!?()[]{}@#$%^&*-_=+/\\"
     
@@ -155,7 +232,57 @@ def get_font_metrics(font, font_size: int) -> Tuple[float, int]:
         avg_char_width = font_size * 0.6  # Slightly more aggressive
         line_height = int(font_size * 1.1)
     
-    return avg_char_width, line_height
+    result = (avg_char_width, line_height)
+    _FONT_METRICS_CACHE[cache_key] = result
+    return result
+
+
+def find_fast_dimensions(
+    text: str,
+    font,
+    font_size: int,
+    padding: int,
+    min_width: int,
+    max_width: int,
+    min_height: int,
+    max_height: int,
+    use_precise: bool = False
+) -> Tuple[int, int, List[Tuple[str, bool]]]:
+    """
+    Fast dimension calculation - uses fixed width and calculates required height.
+    Significantly faster than binary search approach, suitable for real-time use.
+    
+    Returns:
+        (width, height, wrapped_lines) where wrapped_lines is List[Tuple[str, bool]]
+    """
+    # Use max_width for consistent, fast layout
+    width = max_width
+    available_width = width - 2 * padding
+    
+    # Get accurate font metrics
+    avg_char_width, line_height = get_font_metrics(font, font_size)
+    
+    # Wrap text
+    if use_precise:
+        lines = wrap_text_precise(text, available_width, font, font_size)
+    else:
+        max_chars_per_line = int(available_width / avg_char_width)
+        lines = wrap_text_fast(text, max_chars_per_line)
+    
+    # Calculate required height
+    num_paragraph_breaks = sum(1 for _, is_para_end in lines if is_para_end)
+    required_height = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.4) + 2 * padding
+    
+    # Clamp to min/max bounds
+    height = max(min_height, min(max_height, required_height))
+    
+    # Truncate lines if needed
+    if required_height > max_height:
+        available_height = height - 2 * padding
+        max_lines = int(available_height / line_height)
+        lines = lines[:max_lines]
+    
+    return (width, height, lines)
 
 
 def find_optimal_dimensions(
@@ -201,9 +328,9 @@ def find_optimal_dimensions(
             max_chars_per_line = int(available_width / avg_char_width)
             lines = wrap_text_fast(text, max_chars_per_line)
         
-        # Calculate height considering paragraph spacing (0.5 line spacing after each paragraph)
+        # Calculate height considering paragraph spacing (minimal spacing for compact layout)
         num_paragraph_breaks = sum(1 for _, is_para_end in lines if is_para_end)
-        required_height = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.4) + 2 * padding
+        required_height = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.1) + 2 * padding
         fits = required_height <= max_height
         
         return required_height, lines, fits
@@ -260,7 +387,7 @@ def find_optimal_dimensions(
     # Final optimization: try to reduce height if there's too much empty space
     width, height, lines = best_solution
     num_paragraph_breaks = sum(1 for _, is_para_end in lines if is_para_end)
-    actual_height_needed = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.4) + 2 * padding
+    actual_height_needed = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.1) + 2 * padding
     actual_height_needed = max(min_height, actual_height_needed)
 
     if actual_height_needed < height:
@@ -276,11 +403,12 @@ def text_to_adaptive_image(
     bg_color: Tuple[int, int, int] = (255, 255, 255),
     text_color: Tuple[int, int, int] = (0, 0, 0),
     font_path: Optional[str] = None,
-    min_width: int = 256,
+    min_width: int = 28,
     max_width: int = 1024,
-    min_height: int = 256,
+    min_height: int = 28,
     max_height: int = 1024,
     use_precise: bool = True,
+    fast_mode: bool = True,
     **kwargs,
 ) -> Image.Image:
     """
@@ -299,67 +427,33 @@ def text_to_adaptive_image(
         min_height: Minimum image height
         max_height: Maximum image height
         use_precise: Use precise font measurements (recommended, slightly slower but optimal)
+        fast_mode: Use fast mode (fixed width) instead of binary search (much faster)
     
     Returns:
         PIL Image with optimally packed text
     """
     
-    # Optimize padding based on font size - smaller fonts need less padding
-    optimized_padding = max(int(font_size * 1.0), padding // 2)
-    
-    # Ensure dimensions are multiples of 28
-    # def round_to_28(value: int, min_val: int, max_val: int) -> int:
-    #     rounded = round(value / 28) * 28
-    #     return max(min_val, min(max_val, rounded))
-    
-    # min_width = round_to_28(min_width, 28, max_width)
-    # max_width = round_to_28(max_width, min_width, 2048)
-    # min_height = round_to_28(min_height, 28, max_height)
-    # max_height = round_to_28(max_height, min_height, 2048)
+    optimized_padding = padding
 
     min_width = max(min_width, 28)
     max_width = min(max_width, 1024)
 
-    # Load font with fallback chain
-    font = None
-    font_paths = []
-    
-    if font_path:
-        font_paths.append(font_path)
-    
-    # Prioritize monospace fonts for better packing efficiency
-    font_paths.extend([
-        # # Condensed fonts (highest priority for density)
-        # "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
-        # "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Regular.ttf",
-        # "/usr/share/fonts/truetype/liberation2/LiberationSansNarrow-Regular.ttf",
-        # # Monospace fonts (good for consistency)
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-        # Regular fonts (fallback)
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/System/Library/Fonts/Monaco.ttf",  # macOS
-        "C:\\Windows\\Fonts\\consola.ttf",   # Windows
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        "Arial.ttf",
-    ])
-    
-    for path in font_paths:
-        try:
-            font = ImageFont.truetype(path, font_size)
-            break
-        except:
-            continue
-    
-    if font is None:
-        font = ImageFont.load_default()
+    # Use cached font for significant speedup
+    font = _get_cached_font(font_path, font_size)
 
-    # Find optimal dimensions using binary search and precise measurements
-    img_width, img_height, lines = find_optimal_dimensions(
-        text, font, font_size, optimized_padding, 
-        min_width, max_width, min_height, max_height,
-        use_precise=use_precise
-    )
+    # Find dimensions - use fast mode for real-time performance
+    if fast_mode:
+        img_width, img_height, lines = find_fast_dimensions(
+            text, font, font_size, optimized_padding, 
+            min_width, max_width, min_height, max_height,
+            use_precise=use_precise
+        )
+    else:
+        img_width, img_height, lines = find_optimal_dimensions(
+            text, font, font_size, optimized_padding, 
+            min_width, max_width, min_height, max_height,
+            use_precise=use_precise
+        )
     
     # Get actual line height from font metrics
     _, line_height = get_font_metrics(font, font_size)
@@ -370,7 +464,7 @@ def text_to_adaptive_image(
 
     # Render text with optimal spacing and 0.5x line spacing after paragraphs
     y_position = optimized_padding
-    paragraph_spacing = int(line_height * 0.4)
+    paragraph_spacing = int(line_height * 0.1)
     
     for line_text, is_paragraph_end in lines:
         draw.text((optimized_padding, y_position), line_text, fill=text_color, font=font)
@@ -388,6 +482,7 @@ def trajectory_to_image(
     padding: int = 8,
     compact_format: bool = True,
     use_precise: bool = True,
+    fast_mode: bool = True,
     **kwargs
 ) -> Image.Image:
     """
@@ -400,25 +495,27 @@ def trajectory_to_image(
         padding: Padding in pixels (optimized to 8 for minimal waste)
         compact_format: Whether to use compact format for trajectory
         use_precise: Use precise font measurements for optimal packing (recommended)
+        fast_mode: Use fast mode (fixed width) for real-time performance (default True)
         **kwargs: Additional parameters passed to text_to_adaptive_image
 
     Returns:
         PIL Image object with optimally packed text
     """
     pairs = []
-    if "[Observation" in trajectory_text and "Action" in trajectory_text:
-        pairs = parse_trajectory_text(trajectory_text)
-        if pairs and compact_format:
-            formatted_text = format_trajectory_compact(pairs)
-        else:
-            formatted_text = trajectory_text
-    else:
-        formatted_text = trajectory_text
+    # if "[Observation" in trajectory_text and "Action" in trajectory_text:
+    #     pairs = parse_trajectory_text(trajectory_text)
+    #     if pairs and compact_format:
+    #         formatted_text = format_trajectory_compact(pairs)
+    #     else:
+    #         formatted_text = trajectory_text
+    # else:
+    formatted_text = trajectory_text
 
     return text_to_adaptive_image(
         formatted_text,
         font_size=font_size,
         padding=padding,
         use_precise=use_precise,
+        fast_mode=fast_mode,
         **kwargs
     )
