@@ -653,9 +653,9 @@ class OCRTool(BaseOCRTool):
                 
                 image_arrays.append(img_array.copy())
             
-            # Periodically print cache stats
-            if self._cache_stats['total'] % 100 == 0:
-                self._print_cache_stats()
+            # # Periodically print cache stats
+            # if self._cache_stats['total'] % 100 == 0:
+            #     self._print_cache_stats()
         
         return image_arrays
     
