@@ -4,7 +4,7 @@ export CUDA_VISIBLE_DEVICES=0,1
 
 use_ocr=True
 ocr_use_parallel=True
-ocr_max_workers=8
+ocr_max_workers=64
 
 num_cpus_per_env_worker=0.1 # The CPU resource allocated for each environment worker. If you want to use less CPU resources, you can decrease this value.
 

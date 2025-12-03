@@ -1293,6 +1293,12 @@ class RayPPOTrainer:
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
 
+                # Add OCR time to metrics if available
+                if self.envs is not None and hasattr(self.envs, 'ocr_time'):
+                    ocr_time = getattr(self.envs, 'ocr_time', 0.0)
+                    metrics["timing_s/ocr"] = ocr_time
+                    print(f"ocr_time: {ocr_time}")
+
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
 

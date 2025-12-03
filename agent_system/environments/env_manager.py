@@ -23,6 +23,7 @@ from agent_system.environments.prompts import *
 from agent_system.environments.base import EnvironmentManagerBase, to_numpy
 from agent_system.memory import SimpleMemory, SearchMemory
 from omegaconf import OmegaConf
+import time
 
 def parse_gamefile(infos):
     gamefile = []
@@ -149,6 +150,8 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         self.tasks = []
         self.pre_text_obs = text_obs
         self.extract_task(text_obs)
+        if self.ocr_tool and self.ocr_tool.is_enabled():
+            self.ocr_time = 0
 
         full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands, init=True)
         return {'text': full_text_obs, 'image': trajectory_images, 'anchor': text_obs}, infos
@@ -197,6 +200,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         
         # If OCRTool is enabled, generate images (blank for init, or from history)
         if self.ocr_tool and self.ocr_tool.is_enabled():
+            start_time = time.time()
             if init or self.config.env.history_length <= 0:
                 memory_contexts, valid_lens = None, None
             else:
@@ -204,7 +208,19 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
 
             # Get step count from memory (use first env's memory length as reference)
             step_info = str(len(self.memory[0])) if len(self.memory) > 0 else "0"
-            trajectory_images = self.ocr_tool.convert_texts_to_images(memory_contexts, batch_size=len(text_obs), compression_factor=1.0, save_img=False, step_info=step_info)
+            # Use use_precise=False for faster processing (significant speedup)
+            trajectory_images = self.ocr_tool.convert_texts_to_images(
+                memory_contexts, 
+                batch_size=len(text_obs), 
+                compression_factor=1.0, 
+                save_img=False, 
+                step_info=step_info,
+                use_precise=False,
+                enable_cache=True,
+                current_steps=[len(self.memory[i]) for i in range(len(text_obs))]
+            )
+            end_time = time.time()
+            self.ocr_time += end_time - start_time
         elif not init and self.config.env.history_length > 0:
             # OCRTool not enabled, but we still need to fetch memory for text obs
             memory_contexts, valid_lens = self.memory.fetch(
