@@ -154,6 +154,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         self.extract_task(text_obs)
         if self.ocr_tool and self.ocr_tool.is_enabled():
             self.ocr_time = 0
+            self.llm_forward_time = 0
         # Initialize compression factors to default 1.0 for all environments
         self.compression_factors = [1.0] * len(text_obs)
 
