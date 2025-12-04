@@ -141,6 +141,8 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         else:
             self.template_no_his = ALFWORLD_TEMPLATE_NO_HIS
             self.template = ALFWORLD_TEMPLATE
+        # Store compression factors for each environment
+        self.compression_factors = None
     
     def reset(self, kwargs):
         text_obs, image_obs, infos = self.envs.reset()
@@ -152,26 +154,44 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         self.extract_task(text_obs)
         if self.ocr_tool and self.ocr_tool.is_enabled():
             self.ocr_time = 0
+        # Initialize compression factors to default 1.0 for all environments
+        self.compression_factors = [1.0] * len(text_obs)
 
         full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands, init=True)
         return {'text': full_text_obs, 'image': trajectory_images, 'anchor': text_obs}, infos
     
     def step(self, text_actions: List[str]):
-        actions, valids = self.projection_f(text_actions, self.envs.get_admissible_commands)
+        # Extract actions, validity, and compression factors from LLM responses
+        projection_result = self.projection_f(text_actions, self.envs.get_admissible_commands)
+        
+        # Handle both old (2-tuple) and new (3-tuple) return formats for backward compatibility
+        if len(projection_result) == 3:
+            actions, valids, compression_factors = projection_result
+            self.compression_factors = compression_factors
+        else:
+            actions, valids = projection_result
+            # Keep existing compression factors if not returned
+            if self.compression_factors is None:
+                self.compression_factors = [1.0] * len(actions)
+        
         text_obs, image_obs, rewards, dones, infos = self.envs.step(actions)
         self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
         self.pre_text_obs = text_obs
+
+        # Calculate bonus reward for compression (larger factor = small bonus)
+        compression_bonus = np.array([(cf - 1.0) * 0.01 for cf in self.compression_factors])  # 1% bonus per 0.1 increase
+        rewards = to_numpy(rewards) + compression_bonus
 
         full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands)
         if infos[0].get("extra.gamefile") is None:
             infos = set_gamefile(infos, self.gamefile)
 
-        # add action_valid to infos
+        # add action_valid and compression_factor to infos
         for i, info in enumerate(infos):
             info['is_action_valid'] = to_numpy(valids[i])
+            info['compression_factor'] = self.compression_factors[i]
 
         next_observations = {'text': full_text_obs, 'image': trajectory_images, 'anchor': text_obs}
-        rewards = to_numpy(rewards)
         dones = to_numpy(dones)
 
         return next_observations, rewards, dones, infos
@@ -208,11 +228,20 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
 
             # Get step count from memory (use first env's memory length as reference)
             step_info = str(len(self.memory[0])) if len(self.memory) > 0 else "0"
+            
+            # Use compression factors chosen by the LLM (per environment)
+            # Pass individual compression factors as a list for per-image compression
+            if self.compression_factors and len(self.compression_factors) == len(text_obs):
+                compression_factor_to_use = self.compression_factors
+            else:
+                # Default to no compression (1.0) for all images
+                compression_factor_to_use = [1.0] * len(text_obs)
+            
             # Use use_precise=False for faster processing (significant speedup)
             trajectory_images = self.ocr_tool.convert_texts_to_images(
                 memory_contexts, 
                 batch_size=len(text_obs), 
-                compression_factor=1.0, 
+                compression_factor=compression_factor_to_use, 
                 save_img=False, 
                 step_info=step_info,
                 use_precise=False,

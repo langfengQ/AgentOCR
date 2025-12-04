@@ -13,17 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List
+from typing import List, Tuple
 import re
 
-def alfworld_projection(actions: List[str], action_pools: List[List[str]]):
+def alfworld_projection(actions: List[str], action_pools: List[List[str]]) -> Tuple[List[str], List[int], List[float]]:
     """
-    An function to process the actions
+    An function to process the actions and compression factors
     actions: the list of actions to be processeed, it is a list of strings.
     action_pools: the list of action pools, each pool is a list of strings.
+    
+    Returns:
+        actions: List of extracted actions
+        valids: List of validity flags (0 or 1)
+        compression_factors: List of compression factors (default 1.0 if not specified)
     """
 
     valids = [0] * len(actions)
+    compression_factors = [1.0] * len(actions)  # default compression factor
 
     for i in range(len(actions)):
         original_str = actions[i]  # keep the original string
@@ -49,6 +55,27 @@ def alfworld_projection(actions: List[str], action_pools: List[List[str]]):
         except:
             actions[i] = ""
 
+        # Extract compression factor from <compression>...</compression>
+        comp_start_tag = "<compression>"
+        comp_end_tag = "</compression>"
+        comp_start_idx = original_str.lower().find(comp_start_tag)
+        comp_end_idx = original_str.lower().find(comp_end_tag)
+        
+        if comp_start_idx != -1 and comp_end_idx != -1:
+            try:
+                compression_str = original_str[comp_start_idx + len(comp_start_tag):comp_end_idx].strip()
+                compression_value = float(compression_str)
+                # Clamp to >= 1.0 (higher values = more compression)
+                if compression_value < 1.0:
+                    compression_value = 1.0
+                    valids[i] = 0
+                compression_factors[i] = compression_value
+            except (ValueError, AttributeError):
+                # If parsing fails, keep default 1.0
+                compression_factors[i] = 1.0
+                valids[i] = 0
+        else:
+            valids[i] = 0
         # check <think>...</think>
         think_start_idx = original_str.find("<think>")
         think_end_idx = original_str.find("</think>")
@@ -59,4 +86,4 @@ def alfworld_projection(actions: List[str], action_pools: List[List[str]]):
         if re.search(r'[\u4e00-\u9fff]', original_str):
             valids[i] = 0
 
-    return actions, valids
+    return actions, valids, compression_factors

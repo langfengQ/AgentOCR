@@ -863,7 +863,7 @@ class OCRTool(BaseOCRTool):
         trajectory_contexts: Optional[List[str]],
         batch_size: Optional[int] = None,
         save_img: bool = False,
-        compression_factor: Optional[float] = 1.0,
+        compression_factor: Optional[List[float]] = None,
         resample_method: int = Image.LANCZOS,
         current_steps: Optional[List[int]] = None,
         enable_cache: bool = False,
@@ -876,7 +876,7 @@ class OCRTool(BaseOCRTool):
             trajectory_contexts: List of trajectory text strings (from memory.fetch()), or None/empty for blank images
             batch_size: Number of images to create (required if trajectory_contexts is None/empty)
             save_img: Whether to save the generated images to disk
-            compression_factor: compression factor (should be > 1.0). If None, no compression applied.
+            compression_factor: List of compression factors (one per image, should be >= 1.0). If None, no compression applied.
             resample_method: PIL resampling method for compression (default: Image.LANCZOS for best quality)
             current_steps: List of current step numbers for each environment (for incremental rendering)
             enable_cache: Enable cache-based rendering mode (requires current_steps)
@@ -922,12 +922,16 @@ class OCRTool(BaseOCRTool):
                     image_arrays.append(blank_array.copy())
         
         # Apply compression if specified
-        if compression_factor > 1.0:
-            image_arrays = self.compress_image_arrays(
-                image_arrays,
-                compression_factor=compression_factor,
-                resample_method=resample_method
-            )
+        if compression_factor is not None:
+            if len(compression_factor) != len(image_arrays):
+                raise ValueError(f"Length of compression_factor ({len(compression_factor)}) must match length of image_arrays ({len(image_arrays)})")
+            # Only compress if at least one factor > 1.0 (compress_image_arrays handles cf == 1.0 by skipping)
+            if any(cf > 1.0 for cf in compression_factor):
+                image_arrays = self.compress_image_arrays(
+                    image_arrays,
+                    compression_factor=compression_factor,
+                    resample_method=resample_method
+                )
         
         # Save images if requested (save after compression to save disk space)
         if save_img and image_arrays:
@@ -978,11 +982,11 @@ class OCRTool(BaseOCRTool):
     
     def compress_image_arrays(
         self,
-        image_arrays: Union[np.ndarray, List[np.ndarray]],
-        compression_factor: float,
+        image_arrays: List[np.ndarray],
+        compression_factor: List[float],
         keep_aspect_ratio: bool = True,
         resample_method: int = Image.LANCZOS
-    ) -> Union[np.ndarray, List[np.ndarray]]:
+    ) -> List[np.ndarray]:
         """
         Compress image arrays by a given factor while maintaining image clarity.
         
@@ -991,9 +995,9 @@ class OCRTool(BaseOCRTool):
         computational costs while keeping OCR-readable images.
         
         Args:
-            image_arrays: Single numpy array or list of numpy arrays to compress
-            compression_factor: Factor by which to compress the images (e.g., 2.0 means halving the dimensions)
-                              Must be > 1 to reduce size.
+            image_arrays: List of numpy arrays to compress
+            compression_factor: List of factors by which to compress each image (e.g., 2.0 means halving the dimensions)
+                              Must be >= 1.0 (1.0 = no compression, > 1.0 = compress). One factor per image.
             keep_aspect_ratio: Whether to maintain the original aspect ratio (default: True)
             resample_method: PIL resampling method. Options:
                            - Image.LANCZOS (default): Highest quality for downsampling
@@ -1002,30 +1006,31 @@ class OCRTool(BaseOCRTool):
                            - Image.NEAREST: Fastest but lowest quality
         
         Returns:
-            Compressed image array(s) in the same format as input (single array or list)
+            List of compressed image arrays
         
         Examples:
-            >>> # Compress single image by 2x (halve dimensions)
-            >>> compressed = ocr_tool.compress_image_arrays(image, 2.0)
-            
-            >>> # Compress batch of images by 3x
-            >>> compressed_batch = ocr_tool.compress_image_arrays(images, 3.0)
+            >>> # Compress batch of images with different factors per image
+            >>> compressed_batch = ocr_tool.compress_image_arrays(images, [1.5, 2.0, 1.0])
             
             >>> # Use faster but lower quality resampling
-            >>> compressed = ocr_tool.compress_image_arrays(image, 2.0, resample_method=Image.BICUBIC)
+            >>> compressed = ocr_tool.compress_image_arrays(images, [2.0, 2.0], resample_method=Image.BICUBIC)
         """
-        if compression_factor <= 1.0:
-            raise ValueError(f"compression_factor must be > 1.0, got {compression_factor}")
+        if len(compression_factor) != len(image_arrays):
+            raise ValueError(f"Length of compression_factor ({len(compression_factor)}) must match length of image_arrays ({len(image_arrays)})")
         
-        # Handle single array vs list of arrays
-        single_input = not isinstance(image_arrays, list)
-        if single_input:
-            image_arrays = [image_arrays]
+        for cf in compression_factor:
+            if cf < 1.0:
+                raise ValueError(f"All compression_factors must be >= 1.0, got {cf}")
         
         compressed_arrays = []
         
-        for img_array in image_arrays:
+        for img_array, cf in zip(image_arrays, compression_factor):
             if img_array is None or not isinstance(img_array, np.ndarray):
+                compressed_arrays.append(img_array)
+                continue
+            
+            # Skip compression if factor is 1.0 (no compression)
+            if cf == 1.0:
                 compressed_arrays.append(img_array)
                 continue
             
@@ -1033,8 +1038,8 @@ class OCRTool(BaseOCRTool):
             height, width = img_array.shape[:2]
             
             # Calculate new dimensions
-            new_width = max(1, int(width / compression_factor))
-            new_height = max(1, int(height / compression_factor))
+            new_width = max(1, int(width / cf))
+            new_height = max(1, int(height / cf))
             
             # Ensure minimum dimensions for readability
             new_width = max(new_width, self.min_width)
@@ -1053,8 +1058,7 @@ class OCRTool(BaseOCRTool):
             compressed_array = np.array(compressed_img)
             compressed_arrays.append(compressed_array)
         
-        # Return in the same format as input
-        return compressed_arrays[0] if single_input else compressed_arrays
+        return compressed_arrays
     
     def _save_images(
         self,
