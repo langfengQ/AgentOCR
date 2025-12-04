@@ -1299,6 +1299,12 @@ class RayPPOTrainer:
                     metrics["timing_s/ocr"] = ocr_time
                     print(f"ocr_time: {ocr_time}")
 
+                # Add rollout time to metrics if available
+                if self.envs is not None and hasattr(self.envs, 'llm_forward_time'):
+                    llm_forward_time = getattr(self.envs, 'llm_forward_time', 0.0)
+                    metrics["timing_s/llm_forward_time"] = llm_forward_time
+                    print(f"llm_forward_time: {llm_forward_time}")
+
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
 

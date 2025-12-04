@@ -152,6 +152,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         self.extract_task(text_obs)
         if self.ocr_tool and self.ocr_tool.is_enabled():
             self.ocr_time = 0
+            self.llm_forward_time = 0
 
         full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands, init=True)
         return {'text': full_text_obs, 'image': trajectory_images, 'anchor': text_obs}, infos
