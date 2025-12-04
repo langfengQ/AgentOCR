@@ -26,6 +26,7 @@ from agent_system.multi_turn_rollout.utils import process_image, to_list_of_dict
 from agent_system.environments import EnvironmentManagerBase
 from typing import List, Dict
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
+import time
 
 class TrajectoryCollector:
     def __init__(self, config, tokenizer: PreTrainedTokenizer, processor=None):
@@ -343,7 +344,10 @@ class TrajectoryCollector:
 
             # pad to be divisible by dp_size
             batch_input_padded, pad_size = pad_dataproto_to_divisor(batch_input, actor_rollout_wg.world_size)
+            start_time = time.time()
             batch_output_padded = actor_rollout_wg.generate_sequences(batch_input_padded)
+            end_time = time.time() - start_time
+            envs.llm_forward_time += end_time - start_time
             # # unpad
             batch_output = unpad_dataproto(batch_output_padded, pad_size=pad_size)
 
