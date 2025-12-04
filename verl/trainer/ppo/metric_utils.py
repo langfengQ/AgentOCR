@@ -180,12 +180,16 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
             batch.non_tensor_batch["episode_lengths"][unique_idx].min().item(),
         "episode/tool_call_count/mean": 
             batch.non_tensor_batch["tool_callings"][unique_idx].mean().item(),
-        "episode/tool_call_count/max":
-            batch.non_tensor_batch["tool_callings"][unique_idx].max().item(),
-        "episode/tool_call_count/min":
-            batch.non_tensor_batch["tool_callings"][unique_idx].min().item(),
+        # "episode/tool_call_count/max":
+        #     batch.non_tensor_batch["tool_callings"][unique_idx].max().item(),
+        # "episode/tool_call_count/min":
+        #     batch.non_tensor_batch["tool_callings"][unique_idx].min().item(),
         **({f"episode/{k}": v[0].item() for k, v in batch.non_tensor_batch.items() if "success_rate" in k}),
     }
+
+    # compression factor
+    if 'compression_factor' in batch.non_tensor_batch:
+        metrics['compression_factor/mean'] = batch.non_tensor_batch["compression_factor"].mean().item()
     return metrics
 
 

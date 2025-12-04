@@ -135,14 +135,17 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
     def __init__(self, envs, projection_f, config):
         self.memory = SimpleMemory()
         super().__init__(envs, projection_f, config)
+        self.agent_select_compression = getattr(self.ocr_config, 'agent_select_compression', False)
+
         if self.ocr_tool and self.ocr_tool.is_enabled():
             self.template_no_his = ALFWORLD_TEMPLATE_NO_HIS_OCR
             self.template = ALFWORLD_TEMPLATE_OCR
+            if self.agent_select_compression:
+                self.template_no_his += ALFWORLD_COMPRESSION_TEMPLATE
+                self.template += ALFWORLD_COMPRESSION_TEMPLATE
         else:
             self.template_no_his = ALFWORLD_TEMPLATE_NO_HIS
             self.template = ALFWORLD_TEMPLATE
-        # Store compression factors for each environment
-        self.compression_factors = None
     
     def reset(self, kwargs):
         text_obs, image_obs, infos = self.envs.reset()
@@ -154,43 +157,35 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         self.extract_task(text_obs)
         if self.ocr_tool and self.ocr_tool.is_enabled():
             self.ocr_time = 0
-            self.llm_forward_time = 0
-        # Initialize compression factors to default 1.0 for all environments
-        self.compression_factors = [1.0] * len(text_obs)
 
-        full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands, init=True)
+        full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands, compression_factors=None, init=True)
         return {'text': full_text_obs, 'image': trajectory_images, 'anchor': text_obs}, infos
     
     def step(self, text_actions: List[str]):
         # Extract actions, validity, and compression factors from LLM responses
-        projection_result = self.projection_f(text_actions, self.envs.get_admissible_commands)
-        
-        # Handle both old (2-tuple) and new (3-tuple) return formats for backward compatibility
-        if len(projection_result) == 3:
-            actions, valids, compression_factors = projection_result
-            self.compression_factors = compression_factors
+        if self.ocr_tool and self.ocr_tool.is_enabled() and self.agent_select_compression:
+            actions, valids, compression_factors = self.projection_f(text_actions, self.envs.get_admissible_commands, check_compression_tag=True)
         else:
-            actions, valids = projection_result
-            # Keep existing compression factors if not returned
-            if self.compression_factors is None:
-                self.compression_factors = [1.0] * len(actions)
+            actions, valids = self.projection_f(text_actions, self.envs.get_admissible_commands)
+            compression_factors = None
         
         text_obs, image_obs, rewards, dones, infos = self.envs.step(actions)
         self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
         self.pre_text_obs = text_obs
 
         # Calculate bonus reward for compression (larger factor = small bonus)
-        compression_bonus = np.array([(cf - 1.0) * 0.01 for cf in self.compression_factors])  # 1% bonus per 0.1 increase
+        compression_bonus = np.array([(cf - 1.0) * 0.01 for cf in compression_factors]) if compression_factors is not None else np.zeros(len(actions))
         rewards = to_numpy(rewards) + compression_bonus
 
-        full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands)
+        full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands, compression_factors=compression_factors)
         if infos[0].get("extra.gamefile") is None:
             infos = set_gamefile(infos, self.gamefile)
 
         # add action_valid and compression_factor to infos
         for i, info in enumerate(infos):
             info['is_action_valid'] = to_numpy(valids[i])
-            info['compression_factor'] = self.compression_factors[i]
+            if compression_factors is not None:
+                info['compression_factor'] = compression_factors[i]
 
         next_observations = {'text': full_text_obs, 'image': trajectory_images, 'anchor': text_obs}
         dones = to_numpy(dones)
@@ -207,7 +202,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
                 raise ValueError("Task description not found in text observation.")
         
 
-    def build_text_obs(self, text_obs: List[str], admissible_actions: List[List[str]], init: bool = False) -> Tuple[List[str], Optional[List]]:
+    def build_text_obs(self, text_obs: List[str], admissible_actions: List[List[str]], compression_factors: Optional[List[float]] = None, init: bool = False) -> Tuple[List[str], Optional[List]]:
         """
         This function builds the text observation for the agent and optionally renders trajectory history as images.
         
@@ -232,17 +227,15 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
             
             # Use compression factors chosen by the LLM (per environment)
             # Pass individual compression factors as a list for per-image compression
-            if self.compression_factors and len(self.compression_factors) == len(text_obs):
-                compression_factor_to_use = self.compression_factors
-            else:
+            if compression_factors is None:
                 # Default to no compression (1.0) for all images
-                compression_factor_to_use = [1.0] * len(text_obs)
+                compression_factors = [1.0] * len(text_obs)
             
             # Use use_precise=False for faster processing (significant speedup)
             trajectory_images = self.ocr_tool.convert_texts_to_images(
                 memory_contexts, 
                 batch_size=len(text_obs), 
-                compression_factor=compression_factor_to_use, 
+                compression_factor=compression_factors, 
                 save_img=False, 
                 step_info=step_info,
                 use_precise=False,

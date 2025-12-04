@@ -47,39 +47,6 @@ class OCRTool(BaseOCRTool):
         - master_img: Single concatenated image containing all cached segments
         - segments: List of segment metadata (content_hash, step, start_h, end_h, text)
         - indices: Dict for backward compatibility (full context hash -> position)
-    
-    Usage:
-        # Basic usage
-        ocr_tool = OCRTool()
-        image = ocr_tool.convert(trajectory_text)
-        
-        # Batch processing
-        images = ocr_tool.convert_batch([traj1, traj2, traj3])
-        
-        # With custom configuration
-        ocr_tool = OCRTool(
-            font_size=8,
-            padding=30,
-            compact_format=True
-        )
-        image = ocr_tool.convert(trajectory_text)
-        
-        # Integration with environment manager (minimal modification):
-        # 
-        # 1. Initialize in __init__:
-        #    from agentocr import OCRTool
-        #    self.ocr_tool = OCRTool(enabled=config.get('use_ocr', False))
-        #
-        # 2. Use in step() method:
-        #    if self.ocr_tool and self.ocr_tool.is_enabled():
-        #        trajectory_texts, _ = self.memory.fetch(
-        #            history_length=self.config.env.history_length,
-        #            obs_key="text_obs",
-        #            action_key="action"
-        #        )
-        #        trajectory_images = self.ocr_tool.convert_texts_to_images(trajectory_texts)
-        #        # Add to observations or use as needed
-        #        # next_observations['trajectory_images'] = trajectory_images
     """
     
     def __init__(
@@ -925,6 +892,8 @@ class OCRTool(BaseOCRTool):
         if compression_factor is not None:
             if len(compression_factor) != len(image_arrays):
                 raise ValueError(f"Length of compression_factor ({len(compression_factor)}) must match length of image_arrays ({len(image_arrays)})")
+            if any(cf < 1.0 for cf in compression_factor):
+                raise ValueError(f"All compression_factors must be >= 1.0, got {cf}")
             # Only compress if at least one factor > 1.0 (compress_image_arrays handles cf == 1.0 by skipping)
             if any(cf > 1.0 for cf in compression_factor):
                 image_arrays = self.compress_image_arrays(
@@ -1038,8 +1007,8 @@ class OCRTool(BaseOCRTool):
             height, width = img_array.shape[:2]
             
             # Calculate new dimensions
-            new_width = max(1, int(width / cf))
-            new_height = max(1, int(height / cf))
+            new_width = max(28, int(width / cf))
+            new_height = max(28, int(height / cf))
             
             # Ensure minimum dimensions for readability
             new_width = max(new_width, self.min_width)
