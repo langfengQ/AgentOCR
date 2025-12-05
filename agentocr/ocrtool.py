@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from typing import List, Union, Optional, Dict, Any, Tuple
-from PIL import Image
+from PIL import Image, ImageOps
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
@@ -47,39 +47,6 @@ class OCRTool(BaseOCRTool):
         - master_img: Single concatenated image containing all cached segments
         - segments: List of segment metadata (content_hash, step, start_h, end_h, text)
         - indices: Dict for backward compatibility (full context hash -> position)
-    
-    Usage:
-        # Basic usage
-        ocr_tool = OCRTool()
-        image = ocr_tool.convert(trajectory_text)
-        
-        # Batch processing
-        images = ocr_tool.convert_batch([traj1, traj2, traj3])
-        
-        # With custom configuration
-        ocr_tool = OCRTool(
-            font_size=8,
-            padding=30,
-            compact_format=True
-        )
-        image = ocr_tool.convert(trajectory_text)
-        
-        # Integration with environment manager (minimal modification):
-        # 
-        # 1. Initialize in __init__:
-        #    from agentocr import OCRTool
-        #    self.ocr_tool = OCRTool(enabled=config.get('use_ocr', False))
-        #
-        # 2. Use in step() method:
-        #    if self.ocr_tool and self.ocr_tool.is_enabled():
-        #        trajectory_texts, _ = self.memory.fetch(
-        #            history_length=self.config.env.history_length,
-        #            obs_key="text_obs",
-        #            action_key="action"
-        #        )
-        #        trajectory_images = self.ocr_tool.convert_texts_to_images(trajectory_texts)
-        #        # Add to observations or use as needed
-        #        # next_observations['trajectory_images'] = trajectory_images
     """
     
     def __init__(
@@ -265,6 +232,7 @@ class OCRTool(BaseOCRTool):
         Returns:
             PIL Image object with optimally packed text
         """
+        trajectory_text = trajectory_text.strip()
         if not trajectory_text:
             # Return a blank image if trajectory is empty
             return Image.new(
@@ -306,6 +274,35 @@ class OCRTool(BaseOCRTool):
             self._image_cache[cache_key] = img
         
         return img
+
+    def _render_lines(
+        self,
+        lines: List[str],
+        **override_kwargs
+    ) -> Tuple[np.ndarray, List[Tuple[int, int]]]:
+        """
+        Render a list of lines into a stacked image and return per-line height ranges.
+        """
+        if not lines:
+            blank = self._get_blank_array(**override_kwargs)
+            return blank, [(0, blank.shape[0])]
+        
+        # Render without any padding; padding will be added later in the pipeline.
+        render_kwargs = {**override_kwargs, 'padding': 0, 'min_height': 0}
+        images = self.convert_batch(lines, **render_kwargs)
+        arrays = []
+        ranges: List[Tuple[int, int]] = []
+        current_h = 0
+        
+        for img in images:
+            arr = np.array(img) if img is not None else self._get_blank_array(**override_kwargs)
+            start_h = current_h
+            current_h += arr.shape[0]
+            ranges.append((start_h, current_h))
+            arrays.append(arr)
+        
+        stacked = arrays[0] if len(arrays) == 1 else np.vstack(arrays)
+        return stacked, ranges
     
     def _get_cache_key(self, text: str, config: Dict[str, Any]) -> str:
         """Generate a cache key for a text and config combination."""
@@ -434,7 +431,7 @@ class OCRTool(BaseOCRTool):
             return None
         
         # Split context into segments by newlines (to match memory structure)
-        context_segments = [line for line in context.split('\n') if line]
+        context_segments = [line.strip() for line in context.split('\n') if line.strip()]
         
         if not context_segments:
             return None
@@ -500,6 +497,7 @@ class OCRTool(BaseOCRTool):
         for env_idx, (context, current_step) in enumerate(zip(trajectory_contexts, current_steps)):
             self._cache_stats['total'] += 1
             
+            context = context.strip() if context else ""
             if not context:
                 # Empty context, return blank
                 self._cache_stats['misses'] += 1
@@ -546,136 +544,87 @@ class OCRTool(BaseOCRTool):
                 # Render only the new content
                 if new_content:
                     self._cache_stats['hits'] += 1
-                    new_img = self.convert_batch([new_content], **override_kwargs)[0]
-                    new_array = np.array(new_img) if new_img is not None else self._get_blank_array(**override_kwargs)
+                    # Render new content per line to get precise ranges
+                    new_lines = [line.strip() for line in new_content.split('\n') if line.strip()]
+                    new_array, new_ranges = self._render_lines(new_lines, **override_kwargs)
                     
                     # Use current_step as the step range (no pattern extraction needed)
                     step_start = current_step
                     step_end = current_step
                     
-                    # Use _update_master_image to append new content
-                    self._update_master_image(env_idx, new_content, hash(new_content), new_array,
-                                             step_start, step_end, **override_kwargs)
+                    # Use _update_master_image to append new content with per-line ranges
+                    self._update_master_image(env_idx, new_content, hash(new_content), new_array, new_ranges,
+                                              step_start, step_end, **override_kwargs)
                     
-                    # Get the combined image from master
-                    # Combine matched segments with new content, removing padding between them
-                    padding = override_kwargs.get('padding', self.padding)
-                    if matched_ranges:
-                        combined_parts = []
-                        # Extract all matched segments from master image and remove padding
-                        for idx, (start_h, end_h) in enumerate(matched_ranges):
-                            segment_img = master_data['master_img'][start_h:end_h, :, :]
-                            
-                            # First segment: keep as is (with all padding)
-                            if idx == 0:
-                                # Remove bottom padding before next segment
-                                if segment_img.shape[0] > padding:
-                                    segment_img = segment_img[:-padding, :, :]
-                            # Middle segments: remove top and bottom padding
-                            elif idx < len(matched_ranges) - 1:
-                                if segment_img.shape[0] > 2 * padding:
-                                    segment_img = segment_img[padding:-padding, :, :]
-                                elif segment_img.shape[0] > padding:
-                                    segment_img = segment_img[padding:, :, :]
-                            # Last segment: remove top and bottom padding (bottom for new content)
-                            else:
-                                if segment_img.shape[0] > 2 * padding:
-                                    segment_img = segment_img[padding:-padding, :, :]
-                                elif segment_img.shape[0] > padding:
-                                    segment_img = segment_img[padding:, :, :]
-                            
-                            combined_parts.append(segment_img)
-                        
-                        # Remove top padding from new content before appending
-                        if new_array.shape[0] > padding:
-                            new_array_no_top = new_array[padding:, :, :]
-                        else:
-                            new_array_no_top = new_array
-                        
-                        combined_parts.append(new_array_no_top)
-                        combined = np.vstack(combined_parts)
-                    else:
-                        combined = new_array
+                    # Combine matched segments with new content
+                    combined_parts = []
+                    
+                    # Extract and combine matched segments
+                    for start_h, end_h in matched_ranges:
+                        segment_img = master_data['master_img'][start_h:end_h, :, :]
+                        combined_parts.append(segment_img)
+                    
+                    combined_parts.append(new_array)
+                    
+                    combined = np.vstack(combined_parts) if combined_parts else new_array
                 else:
                     # No new content, just use matched segments (sliding window case)
                     self._cache_stats['hits'] += 1
-                    padding = override_kwargs.get('padding', self.padding)
-                    if matched_ranges:
-                        combined_parts = []
-                        # Extract all matched segments from master image and remove padding between them
-                        for idx, (start_h, end_h) in enumerate(matched_ranges):
-                            segment_img = master_data['master_img'][start_h:end_h, :, :]
-                            
-                            # First segment: keep as is (with all padding)
-                            if idx == 0:
-                                # Remove bottom padding if not the last segment
-                                if idx < len(matched_ranges) - 1 and segment_img.shape[0] > padding:
-                                    segment_img = segment_img[:-padding, :, :]
-                            # Middle segments: remove top and bottom padding
-                            elif idx < len(matched_ranges) - 1:
-                                if segment_img.shape[0] > 2 * padding:
-                                    segment_img = segment_img[padding:-padding, :, :]
-                                elif segment_img.shape[0] > padding:
-                                    segment_img = segment_img[padding:, :, :]
-                            # Last segment: remove top padding only, keep bottom padding
-                            else:
-                                if segment_img.shape[0] > padding:
-                                    segment_img = segment_img[padding:, :, :]
-                            
-                            combined_parts.append(segment_img)
-                        
-                        combined = np.vstack(combined_parts)
-                    else:
-                        combined = self._get_blank_array(**override_kwargs)
+                    combined_parts = []
+                    
+                    # Extract and combine matched segments
+                    for start_h, end_h in matched_ranges:
+                        segment_img = master_data['master_img'][start_h:end_h, :, :]
+                        combined_parts.append(segment_img)
+                    
+                    combined = np.vstack(combined_parts) if combined_parts else self._get_blank_array(**override_kwargs)
                 
                 # Cache this exact context for future use
                 master_data['indices'][context_hash] = (0, combined.shape[0], current_step, current_step)
                 
-                # 检查是否需要清理
                 max_master_height = override_kwargs.get('max_height', self.max_height) * 50
                 if master_data.get('master_img') is not None and master_data['master_img'].shape[0] > max_master_height:
                     self._cleanup_master_image(env_idx, current_step)
                 
                 image_arrays.append(combined)
             else:
-                # Cache miss - render from scratch
+                # Cache miss - render from scratch (per-line)
                 self._cache_stats['misses'] += 1
-                images = self.convert_batch([context], **override_kwargs)
-                img_array = np.array(images[0]) if images[0] is not None else self._get_blank_array(**override_kwargs)
+                context_lines = [line.strip() for line in context.split('\n') if line.strip()]
+                img_array, line_ranges = self._render_lines(context_lines, **override_kwargs)
                 
                 # Use current_step as the step range (no pattern extraction needed)
                 step_start = current_step
                 step_end = current_step
                 
                 # Update master image and indices
-                self._update_master_image(env_idx, context, context_hash, img_array,
+                self._update_master_image(env_idx, context, context_hash, img_array, line_ranges,
                                          step_start, step_end, **override_kwargs)
                 
                 image_arrays.append(img_array.copy())
             
             # # Periodically print cache stats
-            # if self._cache_stats['total'] % 100 == 0:
-            #     self._print_cache_stats()
+            if self._cache_stats['total'] % 256 == 0:
+                self._print_cache_stats()
         
         return image_arrays
     
     def _update_master_image(self, env_idx: int, context: str, context_hash: int,
-                            new_img: np.ndarray, step_start: int, step_end: int,
+                            new_img: np.ndarray, line_ranges: Optional[List[Tuple[int, int]]],
+                            step_start: int, step_end: int,
                             **override_kwargs):
         """
         Update master image for an environment by appending new content.
         Stores individual segments (lines split by \n) to support sliding window matching.
         
-        Strategy: For single lines, use provided image. For multiple lines,
-        render each separately for precise height tracking.
-        
-        When appending segments, removes top and bottom padding to avoid gaps.
+        Optimized strategy: Directly use the pre-rendered image without re-rendering.
+        Each new_content (already rendered) is treated as one or more segments.
         
         Args:
             env_idx: Environment index
-            context: Full context string
+            context: Full context string (used to extract line segments)
             context_hash: Hash of context (for backward compatibility)
-            new_img: Pre-rendered image to append (used for single lines or incremental additions)
+            new_img: Pre-rendered image to append (already rendered, no re-rendering needed)
             step_start: Starting step number of this context
             step_end: Ending step number of this context
         """
@@ -688,76 +637,35 @@ class OCRTool(BaseOCRTool):
             master_data['indices'] = {}  # Keep for backward compatibility
         
         # Split context into segments by newlines (to match memory structure)
-        context_lines = [line for line in context.split('\n') if line]
+        context_lines = [line.strip() for line in context.split('\n') if line.strip()]
         
-        # Check if this is a first-time render with multiple new lines
-        # In this case, render each line separately for better granularity
-        should_render_separately = (
-            len(context_lines) > 1 and
-            # Check if any of these lines are already cached
-            not any(
-                any(seg['content_hash'] == hash(line) for seg in master_data['segments'])
-                for line in context_lines
-            )
-        )
+        # Append the pre-rendered image to master image
+        if master_data['master_img'] is None:
+            master_data['master_img'] = new_img
+            start_h = 0
+            end_h = new_img.shape[0]
+        else:
+            start_h = master_data['master_img'].shape[0]
+            master_data['master_img'] = np.vstack([master_data['master_img'], new_img])
+            end_h = master_data['master_img'].shape[0]
         
-        if should_render_separately:
-            # Multiple new lines - render each separately for precise height tracking
-            for line in context_lines:
-                line_hash = hash(line)
-                
-                # Render this line separately
-                line_img = self.convert_batch([line], **override_kwargs)[0]
-                line_array = np.array(line_img) if line_img is not None else self._get_blank_array(**override_kwargs)
-                
-                # Append to master image - keep segments complete with all padding
-                if master_data['master_img'] is None:
-                    master_data['master_img'] = line_array
-                    start_h = 0
-                    end_h = line_array.shape[0]
-                else:
-                    start_h = master_data['master_img'].shape[0]
-                    master_data['master_img'] = np.vstack([master_data['master_img'], line_array])
-                    end_h = master_data['master_img'].shape[0]
-                
-                # Store segment with its precise height range
+        # Store each line as a separate segment for cache matching.
+        # If line_ranges is provided, use precise heights per line; otherwise fall back to the whole block.
+        if line_ranges:
+            ranges_iter = [(start_h + s, start_h + e) for (s, e) in line_ranges]
+        else:
+            ranges_iter = [(start_h, end_h)] * max(len(context_lines), 1)
+        for line, (seg_start, seg_end) in zip(context_lines, ranges_iter):
+            line_hash = hash(line)
+            exists = any(seg['content_hash'] == line_hash for seg in master_data['segments'])
+            if not exists:
                 master_data['segments'].append({
                     'content_hash': line_hash,
                     'step': step_end,
-                    'start_h': start_h,
-                    'end_h': end_h,
+                    'start_h': seg_start,
+                    'end_h': seg_end,
                     'text': line
                 })
-            
-            # Store index for the full context
-            start_h = 0
-            end_h = master_data['master_img'].shape[0] if master_data['master_img'] is not None else 0
-        else:
-            # Single line or incremental addition - use provided image
-            if master_data['master_img'] is None:
-                master_data['master_img'] = new_img
-                start_h = 0
-                end_h = new_img.shape[0]
-            else:
-                # Simply append without removing any padding
-                # Padding will be removed during extraction/combination
-                start_h = master_data['master_img'].shape[0]
-                master_data['master_img'] = np.vstack([master_data['master_img'], new_img])
-                end_h = master_data['master_img'].shape[0]
-            
-            # Store segment(s) - each line as a separate segment
-            for line in context_lines:
-                line_hash = hash(line)
-                exists = any(seg['content_hash'] == line_hash for seg in master_data['segments'])
-                
-                if not exists:
-                    master_data['segments'].append({
-                        'content_hash': line_hash,
-                        'step': step_end,
-                        'start_h': start_h,
-                        'end_h': end_h,
-                        'text': line
-                    })
         
         # Store index for backward compatibility (for exact context matching)
         master_data['indices'][context_hash] = (start_h, end_h, step_start, step_end)
@@ -863,10 +771,10 @@ class OCRTool(BaseOCRTool):
         trajectory_contexts: Optional[List[str]],
         batch_size: Optional[int] = None,
         save_img: bool = False,
-        compression_factor: Optional[float] = 1.0,
+        compression_factor: Optional[List[float]] = None,
         resample_method: int = Image.LANCZOS,
         current_steps: Optional[List[int]] = None,
-        enable_cache: bool = False,
+        enable_cache: bool = True,
         **override_kwargs
     ) -> List[np.ndarray]:
         """
@@ -876,7 +784,7 @@ class OCRTool(BaseOCRTool):
             trajectory_contexts: List of trajectory text strings (from memory.fetch()), or None/empty for blank images
             batch_size: Number of images to create (required if trajectory_contexts is None/empty)
             save_img: Whether to save the generated images to disk
-            compression_factor: compression factor (should be > 1.0). If None, no compression applied.
+            compression_factor: List of compression factors (one per image, should be >= 1.0). If None, no compression applied.
             resample_method: PIL resampling method for compression (default: Image.LANCZOS for best quality)
             current_steps: List of current step numbers for each environment (for incremental rendering)
             enable_cache: Enable cache-based rendering mode (requires current_steps)
@@ -890,6 +798,10 @@ class OCRTool(BaseOCRTool):
                 return np.array([]).reshape(0, *self._get_blank_image_shape(**override_kwargs))
             return np.array([])
         
+        # Rendering happens without padding and without enforced min height;
+        # padding is applied only after optional compression.
+        render_kwargs = {**override_kwargs, 'padding': 0, 'min_height': 0}
+        
         # If no trajectory contexts provided, create blank images
         if trajectory_contexts is None or len(trajectory_contexts) == 0:
             if batch_size is None:
@@ -898,11 +810,11 @@ class OCRTool(BaseOCRTool):
         # Incremental rendering mode
         elif enable_cache and current_steps is not None and self.enable_cache:
             image_arrays = self._convert_incremental(
-                trajectory_contexts, current_steps, **override_kwargs
+                trajectory_contexts, current_steps, **render_kwargs
             )
         else:
             # Convert trajectory texts to images (normal mode)
-            images = self.convert_batch(trajectory_contexts, **override_kwargs)
+            images = self.convert_batch(trajectory_contexts, **render_kwargs)
             
             # Optimize: Pre-create blank array for reuse
             width = override_kwargs.get('min_width', self.min_width)
@@ -922,12 +834,28 @@ class OCRTool(BaseOCRTool):
                     image_arrays.append(blank_array.copy())
         
         # Apply compression if specified
-        if compression_factor > 1.0:
-            image_arrays = self.compress_image_arrays(
-                image_arrays,
-                compression_factor=compression_factor,
-                resample_method=resample_method
-            )
+        if compression_factor is not None:
+            if len(compression_factor) != len(image_arrays):
+                raise ValueError(f"Length of compression_factor ({len(compression_factor)}) must match length of image_arrays ({len(image_arrays)})")
+            invalid_factors = [cf for cf in compression_factor if cf < 1.0]
+            if invalid_factors:
+                raise ValueError(f"All compression_factors must be >= 1.0, got {invalid_factors}")
+            # Only compress if at least one factor > 1.0 (compress_image_arrays handles cf == 1.0 by skipping)
+            if any(cf > 1.0 for cf in compression_factor):
+                image_arrays = self.compress_image_arrays(
+                    image_arrays,
+                    compression_factor=compression_factor,
+                    resample_method=resample_method
+                )
+        
+        # Apply padding after compression so that borders are not compressed.
+        padding_to_add = override_kwargs.get('padding', self.padding)
+        if padding_to_add and padding_to_add > 0:
+            bg_color = override_kwargs.get('bg_color', self.bg_color)
+            image_arrays = [
+                self._add_padding_to_array(arr, padding_to_add, bg_color)
+                for arr in image_arrays
+            ]
         
         # Save images if requested (save after compression to save disk space)
         if save_img and image_arrays:
@@ -978,11 +906,11 @@ class OCRTool(BaseOCRTool):
     
     def compress_image_arrays(
         self,
-        image_arrays: Union[np.ndarray, List[np.ndarray]],
-        compression_factor: float,
+        image_arrays: List[np.ndarray],
+        compression_factor: List[float],
         keep_aspect_ratio: bool = True,
         resample_method: int = Image.LANCZOS
-    ) -> Union[np.ndarray, List[np.ndarray]]:
+    ) -> List[np.ndarray]:
         """
         Compress image arrays by a given factor while maintaining image clarity.
         
@@ -991,9 +919,9 @@ class OCRTool(BaseOCRTool):
         computational costs while keeping OCR-readable images.
         
         Args:
-            image_arrays: Single numpy array or list of numpy arrays to compress
-            compression_factor: Factor by which to compress the images (e.g., 2.0 means halving the dimensions)
-                              Must be > 1 to reduce size.
+            image_arrays: List of numpy arrays to compress
+            compression_factor: List of factors by which to compress each image (e.g., 2.0 means halving the dimensions)
+                              Must be >= 1.0 (1.0 = no compression, > 1.0 = compress). One factor per image.
             keep_aspect_ratio: Whether to maintain the original aspect ratio (default: True)
             resample_method: PIL resampling method. Options:
                            - Image.LANCZOS (default): Highest quality for downsampling
@@ -1002,30 +930,31 @@ class OCRTool(BaseOCRTool):
                            - Image.NEAREST: Fastest but lowest quality
         
         Returns:
-            Compressed image array(s) in the same format as input (single array or list)
+            List of compressed image arrays
         
         Examples:
-            >>> # Compress single image by 2x (halve dimensions)
-            >>> compressed = ocr_tool.compress_image_arrays(image, 2.0)
-            
-            >>> # Compress batch of images by 3x
-            >>> compressed_batch = ocr_tool.compress_image_arrays(images, 3.0)
+            >>> # Compress batch of images with different factors per image
+            >>> compressed_batch = ocr_tool.compress_image_arrays(images, [1.5, 2.0, 1.0])
             
             >>> # Use faster but lower quality resampling
-            >>> compressed = ocr_tool.compress_image_arrays(image, 2.0, resample_method=Image.BICUBIC)
+            >>> compressed = ocr_tool.compress_image_arrays(images, [2.0, 2.0], resample_method=Image.BICUBIC)
         """
-        if compression_factor <= 1.0:
-            raise ValueError(f"compression_factor must be > 1.0, got {compression_factor}")
+        if len(compression_factor) != len(image_arrays):
+            raise ValueError(f"Length of compression_factor ({len(compression_factor)}) must match length of image_arrays ({len(image_arrays)})")
         
-        # Handle single array vs list of arrays
-        single_input = not isinstance(image_arrays, list)
-        if single_input:
-            image_arrays = [image_arrays]
+        for cf in compression_factor:
+            if cf < 1.0:
+                raise ValueError(f"All compression_factors must be >= 1.0, got {cf}")
         
         compressed_arrays = []
         
-        for img_array in image_arrays:
+        for img_array, cf in zip(image_arrays, compression_factor):
             if img_array is None or not isinstance(img_array, np.ndarray):
+                compressed_arrays.append(img_array)
+                continue
+            
+            # Skip compression if factor is 1.0 (no compression)
+            if cf == 1.0:
                 compressed_arrays.append(img_array)
                 continue
             
@@ -1033,8 +962,8 @@ class OCRTool(BaseOCRTool):
             height, width = img_array.shape[:2]
             
             # Calculate new dimensions
-            new_width = max(1, int(width / compression_factor))
-            new_height = max(1, int(height / compression_factor))
+            new_width = max(28, int(width / cf))
+            new_height = max(28, int(height / cf))
             
             # Ensure minimum dimensions for readability
             new_width = max(new_width, self.min_width)
@@ -1053,8 +982,26 @@ class OCRTool(BaseOCRTool):
             compressed_array = np.array(compressed_img)
             compressed_arrays.append(compressed_array)
         
-        # Return in the same format as input
-        return compressed_arrays[0] if single_input else compressed_arrays
+        return compressed_arrays
+    
+    def _add_padding_to_array(
+        self,
+        img_array: Optional[np.ndarray],
+        padding: int,
+        bg_color: Tuple[int, int, int]
+    ) -> Optional[np.ndarray]:
+        """
+        Add uniform padding around an image array using the given background color.
+        """
+        if img_array is None or not isinstance(img_array, np.ndarray) or padding <= 0:
+            return img_array
+        
+        if img_array.dtype != np.uint8:
+            img_array = img_array.astype(np.uint8)
+        
+        img = Image.fromarray(img_array)
+        padded_img = ImageOps.expand(img, border=padding, fill=bg_color)
+        return np.array(padded_img)
     
     def _save_images(
         self,
@@ -1086,7 +1033,7 @@ class OCRTool(BaseOCRTool):
                 filename = f"trajectory_env{env_idx}_{step_info}_{self.image_save_counter:06d}_{timestamp}.png"
                 filepath = os.path.join(self.trajectory_images_dir, filename)
                 img.save(filepath)
-                print(f"Saved trajectory image to: {filepath}")
+                # print(f"Saved trajectory image to: {filepath}")
         
         self.image_save_counter += 1
 

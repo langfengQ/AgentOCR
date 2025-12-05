@@ -5,6 +5,7 @@ export CUDA_VISIBLE_DEVICES=0,1
 use_ocr=True
 ocr_use_parallel=True
 ocr_max_workers=64
+agent_select_compression=True
 
 num_cpus_per_env_worker=0.1 # The CPU resource allocated for each environment worker. If you want to use less CPU resources, you can decrease this value.
 
@@ -23,7 +24,7 @@ else
     max_prompt_length=4096
 fi
 
-experiment_name="grpo_${mode}_${use_ocr}"
+experiment_name="grpo_useocr${use_ocr}_agentcompress${agent_select_compression}"
 
 # We only use data preparation to indicate the modality and the data size.
 python3 -m examples.data_preprocess.prepare \
@@ -46,10 +47,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=32 \
-    actor_rollout_ref.actor.use_kl_loss=True \
-    actor_rollout_ref.actor.kl_loss_coef=0.01 \
-    actor_rollout_ref.actor.kl_loss_type=low_var_kl \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
+    actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
@@ -73,9 +72,10 @@ python3 -m verl.trainer.main_ppo \
     env.history_length=30 \
     env.rollout.n=$group_size \
     env.resources_per_worker.num_cpus=$num_cpus_per_env_worker \
-    env.ocr.use_ocr=$use_ocr \
-    env.ocr.use_parallel=$ocr_use_parallel \
-    env.ocr.max_workers=$ocr_max_workers \
+    ocr.use_ocr=$use_ocr \
+    ocr.use_parallel=$ocr_use_parallel \
+    ocr.max_workers=$ocr_max_workers \
+    ocr.agent_select_compression=$agent_select_compression \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='AgentOCR' \

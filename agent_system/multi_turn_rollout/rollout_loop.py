@@ -346,8 +346,8 @@ class TrajectoryCollector:
             batch_input_padded, pad_size = pad_dataproto_to_divisor(batch_input, actor_rollout_wg.world_size)
             start_time = time.time()
             batch_output_padded = actor_rollout_wg.generate_sequences(batch_input_padded)
-            end_time = time.time() - start_time
-            envs.llm_forward_time += end_time - start_time
+            end_time = time.time()
+            self.llm_forward_time += end_time - start_time
             # # unpad
             batch_output = unpad_dataproto(batch_output_padded, pad_size=pad_size)
 
@@ -371,6 +371,9 @@ class TrajectoryCollector:
                 batch.non_tensor_batch['is_action_valid'] = np.array([info['is_action_valid'] for info in infos], dtype=bool)
             else:
                 batch.non_tensor_batch['is_action_valid'] = np.ones(batch_size, dtype=bool)
+
+            if 'compression_factor' in infos[0]:
+                batch.non_tensor_batch['compression_factor'] = np.array([info['compression_factor'] for info in infos], dtype=np.float32)
 
             if 'tool_calling' in infos[0]:
                 tool_callings[active_masks] += np.array([info['tool_calling'] for info in infos], dtype=np.float32)[active_masks]
@@ -496,6 +499,7 @@ class TrajectoryCollector:
         Returns:
             DataProto: Final collected trajectory data with metadata.
         """
+        self.llm_forward_time = 0
         if is_train:
             gen_batch = gen_batch.repeat(repeat_times=self.config.env.rollout.n, interleave=True)
             

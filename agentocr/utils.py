@@ -111,6 +111,7 @@ def wrap_text_fast(text: str, max_chars_per_line: int) -> List[Tuple[str, bool]]
     num_paragraphs = len(paragraphs)
     
     for para_idx, paragraph in enumerate(paragraphs):
+        paragraph = paragraph.strip()
         if not paragraph:
             lines.append(("", True))
             continue
@@ -166,6 +167,7 @@ def wrap_text_precise(text: str, max_width: int, font, font_size: int) -> List[T
     paragraphs = text.split('\n')
     
     for para_idx, paragraph in enumerate(paragraphs):
+        paragraph = paragraph.strip()
         if not paragraph:
             lines.append(("", True))
             continue
@@ -226,11 +228,11 @@ def get_font_metrics(font, font_size: int) -> Tuple[float, int]:
         line_height = bbox[3] - bbox[1]
         # Ultra-compact: minimal spacing (1.05x instead of 1.2x)
         # This is the sweet spot between density and readability
-        line_height = int(line_height * 1.1)
+        line_height = int(line_height * 1.2)
     except:
         # Fallback to estimates with compact spacing
         avg_char_width = font_size * 0.6  # Slightly more aggressive
-        line_height = int(font_size * 1.1)
+        line_height = int(font_size * 1.2)
     
     result = (avg_char_width, line_height)
     _FONT_METRICS_CACHE[cache_key] = result
@@ -271,7 +273,7 @@ def find_fast_dimensions(
     
     # Calculate required height
     num_paragraph_breaks = sum(1 for _, is_para_end in lines if is_para_end)
-    required_height = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.4) + 2 * padding
+    required_height = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.0) + 2 * padding
     
     # Clamp to min/max bounds
     height = max(min_height, min(max_height, required_height))
@@ -330,7 +332,7 @@ def find_optimal_dimensions(
         
         # Calculate height considering paragraph spacing (minimal spacing for compact layout)
         num_paragraph_breaks = sum(1 for _, is_para_end in lines if is_para_end)
-        required_height = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.1) + 2 * padding
+        required_height = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.0) + 2 * padding
         fits = required_height <= max_height
         
         return required_height, lines, fits
@@ -387,7 +389,7 @@ def find_optimal_dimensions(
     # Final optimization: try to reduce height if there's too much empty space
     width, height, lines = best_solution
     num_paragraph_breaks = sum(1 for _, is_para_end in lines if is_para_end)
-    actual_height_needed = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.1) + 2 * padding
+    actual_height_needed = len(lines) * line_height + num_paragraph_breaks * int(line_height * 0.0) + 2 * padding
     actual_height_needed = max(min_height, actual_height_needed)
 
     if actual_height_needed < height:
@@ -432,6 +434,7 @@ def text_to_adaptive_image(
     Returns:
         PIL Image with optimally packed text
     """
+    text = text.strip() if text else ""
     
     optimized_padding = padding
 
@@ -464,7 +467,7 @@ def text_to_adaptive_image(
 
     # Render text with optimal spacing and 0.5x line spacing after paragraphs
     y_position = optimized_padding
-    paragraph_spacing = int(line_height * 0.1)
+    paragraph_spacing = int(line_height * 0.0)
     
     for line_text, is_paragraph_end in lines:
         draw.text((optimized_padding, y_position), line_text, fill=text_color, font=font)
@@ -501,6 +504,7 @@ def trajectory_to_image(
     Returns:
         PIL Image object with optimally packed text
     """
+    trajectory_text = trajectory_text.strip() if trajectory_text else ""
     pairs = []
     # if "[Observation" in trajectory_text and "Action" in trajectory_text:
     #     pairs = parse_trajectory_text(trajectory_text)

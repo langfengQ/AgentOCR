@@ -45,17 +45,17 @@ class EnvironmentManagerBase:
         self.envs = envs
         self.projection_f = projection_f
         self.config = config
+        self.ocr_config = config.ocr
 
         # Initialize OCRTool if enabled
-        ocr_config = config.env.ocr
-        use_ocr = getattr(ocr_config, 'use_ocr', False)
+        use_ocr = getattr(self.ocr_config, 'use_ocr', False)
 
         if use_ocr:
             self.ocr_tool = OCRTool(
                 enabled=True,
-                use_parallel=ocr_config.get('use_parallel', True),
-                max_workers=ocr_config.get('max_workers', None),
-                **{k: v for k, v in ocr_config.items() if k not in ['use_parallel', 'max_workers']}
+                use_parallel=self.ocr_config.get('use_parallel', True),
+                max_workers=self.ocr_config.get('max_workers', None),
+                **{k: v for k, v in self.ocr_config.items() if k not in ['use_parallel', 'max_workers', 'agent_select_compression']}
             )
         else:
             self.ocr_tool = None

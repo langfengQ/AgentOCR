@@ -817,8 +817,8 @@ class RayPPOTrainer:
 
         for data_source, tool_calls in data_source_tool_calling.items():
             metric_dict[f'val/{data_source}/tool_call_count/mean'] = np.mean(tool_calls)
-            metric_dict[f'val/{data_source}/tool_call_count/max'] = np.max(tool_calls)
-            metric_dict[f'val/{data_source}/tool_call_count/min'] = np.min(tool_calls)
+            # metric_dict[f'val/{data_source}/tool_call_count/max'] = np.max(tool_calls)
+            # metric_dict[f'val/{data_source}/tool_call_count/min'] = np.min(tool_calls)
 
         for k, v in success_rate.items():
             metric_dict[f'val/{k}'] = v
@@ -1286,24 +1286,18 @@ class RayPPOTrainer:
                         "training/epoch": epoch,
                     }
                 )
+                # Collect external timing metrics into timing_raw for unified processing
+                if self.envs is not None and hasattr(self.envs, 'ocr_time'):
+                    timing_raw["ocr"] = getattr(self.envs, 'ocr_time', 0.0)
+                if self.traj_collector is not None and hasattr(self.traj_collector, 'llm_forward_time'):
+                    timing_raw["llm_forward"] = getattr(self.traj_collector, 'llm_forward_time', 0.0)
+
                 # collect metrics
                 metrics.update(compute_data_metrics(batch=batch, use_critic=self.use_critic))
                 metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
-
-                # Add OCR time to metrics if available
-                if self.envs is not None and hasattr(self.envs, 'ocr_time'):
-                    ocr_time = getattr(self.envs, 'ocr_time', 0.0)
-                    metrics["timing_s/ocr"] = ocr_time
-                    print(f"ocr_time: {ocr_time}")
-
-                # Add rollout time to metrics if available
-                if self.envs is not None and hasattr(self.envs, 'llm_forward_time'):
-                    llm_forward_time = getattr(self.envs, 'llm_forward_time', 0.0)
-                    metrics["timing_s/llm_forward_time"] = llm_forward_time
-                    print(f"llm_forward_time: {llm_forward_time}")
 
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)

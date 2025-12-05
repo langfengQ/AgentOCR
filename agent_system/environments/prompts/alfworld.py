@@ -61,3 +61,7 @@ Now it's your turn to take an action.
 You should first reason step-by-step about the current situation. This reasoning process MUST be enclosed within <think> </think> tags. 
 Once you've finished your reasoning, you should choose an admissible action for current step and present it within <action> </action> tags.
 """
+
+ALFWORLD_COMPRESSION_TEMPLATE = """
+Additionally, select an image compression factor (>= 1.0) for the next trajectory image. Your priority is to ensure task completion first, then maximize compression to reduce costs without affecting task success. Present your choice within <compression> </compression> tags (e.g., <compression>1.2</compression>).
+"""
