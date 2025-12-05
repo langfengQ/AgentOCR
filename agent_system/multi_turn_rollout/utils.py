@@ -68,6 +68,7 @@ def process_image(image, max_pixels: int = 2048 * 2048, min_pixels: int = 256 * 
     image = Image.fromarray(image)
 
     if (image.width * image.height) > max_pixels:
+        print(f"Warning: Image too large, resizing from {image.width}x{image.height} to {max_pixels}")
         resize_factor = math.sqrt(max_pixels / (image.width * image.height))
         width, height = int(image.width * resize_factor), int(image.height * resize_factor)
         image = image.resize((width, height))
