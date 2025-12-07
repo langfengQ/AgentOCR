@@ -113,8 +113,6 @@ class OCRTool(BaseOCRTool):
         self.trajectory_images_dir = os.path.join(os.getcwd(), "logs/trajectory_images")
         os.makedirs(self.trajectory_images_dir, exist_ok=True)
         self.image_save_counter = 0
-        # Image cache for fast repeated lookups
-        self._image_cache = {}
         # Incremental rendering: use master image + height indices to save memory
         # Format: {env_idx: {'master_img': np.ndarray, 'indices': {step_range_hash: (start, end)}}}
         self._master_images = {} if enable_cache else None
@@ -241,11 +239,6 @@ class OCRTool(BaseOCRTool):
                 self.bg_color
             )
         
-        # Check cache if enabled
-        if self.enable_cache:
-            cache_key = self._get_cache_key(trajectory_text, config)
-            if cache_key in self._image_cache:
-                return self._image_cache[cache_key].copy()
         
         # Render image
         img = trajectory_to_image(
@@ -265,13 +258,6 @@ class OCRTool(BaseOCRTool):
             **config['extra_kwargs']
         )
         
-        # Store in cache if enabled
-        if self.enable_cache:
-            # Limit cache size to prevent memory issues
-            if len(self._image_cache) > 100:
-                # Remove oldest entry (simple FIFO)
-                self._image_cache.pop(next(iter(self._image_cache)))
-            self._image_cache[cache_key] = img
         
         return img
 
@@ -383,26 +369,17 @@ class OCRTool(BaseOCRTool):
             else:
                 self.kwargs[key] = value
     
-    def _combine_images_vertical(self, img1: np.ndarray, img2: np.ndarray, max_height: Optional[int] = None) -> np.ndarray:
+    def reset(self):
         """
-        Vertically concatenate two images.
-        
-        Args:
-            img1: First image (top)
-            img2: Second image (bottom)
-            max_height: Maximum height for the combined image (will truncate from top if exceeded)
-        
-        Returns:
-            Combined image as numpy array
+        Reset the OCR tool state, clearing all caches and statistics.
+        This is useful when starting a new episode or batch of episodes.
         """
-        combined = np.vstack([img1, img2])
+        # Clear master images cache
+        if self._master_images is not None:
+            self._master_images.clear()
         
-        # Truncate from top if max_height exceeded
-        if max_height is not None and combined.shape[0] > max_height:
-            # Keep bottom portion (most recent history)
-            combined = combined[-max_height:, :, :]
-        
-        return combined
+        # Reset cache statistics
+        self._cache_stats = {'hits': 0, 'misses': 0, 'total': 0}
     
     def _find_matching_segments(self, context: str, env_idx: int) -> Optional[Tuple[List[str], List[Tuple[int, int]], List[Dict], int]]:
         """
@@ -582,9 +559,6 @@ class OCRTool(BaseOCRTool):
                 # Cache this exact context for future use
                 master_data['indices'][context_hash] = (0, combined.shape[0], current_step, current_step)
                 
-                max_master_height = override_kwargs.get('max_height', self.max_height) * 50
-                if master_data.get('master_img') is not None and master_data['master_img'].shape[0] > max_master_height:
-                    self._cleanup_master_image(env_idx, current_step)
                 
                 image_arrays.append(combined)
             else:
@@ -670,77 +644,7 @@ class OCRTool(BaseOCRTool):
         # Store index for backward compatibility (for exact context matching)
         master_data['indices'][context_hash] = (start_h, end_h, step_start, step_end)
         
-        # Cleanup if master image gets too large
-        max_master_height = override_kwargs.get('max_height', self.max_height) * 50
-        if master_data['master_img'].shape[0] > max_master_height:
-            self._cleanup_master_image(env_idx, step_end)
     
-    def _cleanup_master_image(self, env_idx: int, current_step: int, keep_recent_steps: int = 10):
-        """
-        Clean up master image to prevent unbounded growth.
-        Keeps only recent contexts/segments and rebuilds master image.
-        
-        Args:
-            env_idx: Environment index
-            current_step: Current step number
-            keep_recent_steps: Number of recent step ranges to keep
-        """
-        if env_idx not in self._master_images:
-            return
-        
-        master_data = self._master_images[env_idx]
-        segments = master_data.get('segments', [])
-        indices = master_data.get('indices', {})
-        
-        # Sort segments by step (most recent last)
-        sorted_segments = sorted(segments, key=lambda x: x['step'])
-        
-        # Keep only recent segments
-        keep_segments = sorted_segments[-keep_recent_steps:] if len(sorted_segments) > keep_recent_steps else sorted_segments
-        
-        if len(keep_segments) < len(sorted_segments):
-            # Rebuild master image with only kept segments
-            new_master = None
-            new_segments = []
-            current_h = 0
-            
-            for seg_info in keep_segments:
-                old_start_h = seg_info['start_h']
-                old_end_h = seg_info['end_h']
-                
-                # Extract this slice from old master
-                slice_img = master_data['master_img'][old_start_h:old_end_h, :, :]
-                
-                if new_master is None:
-                    new_master = slice_img
-                else:
-                    new_master = np.vstack([new_master, slice_img])
-                
-                # Update segment with new heights
-                new_end_h = current_h + slice_img.shape[0]
-                new_segments.append({
-                    'content_hash': seg_info['content_hash'],
-                    'step': seg_info['step'],
-                    'start_h': current_h,
-                    'end_h': new_end_h,
-                    'text': seg_info.get('text', '')
-                })
-                current_h = new_end_h
-            
-            # Update master data
-            master_data['master_img'] = new_master
-            master_data['segments'] = new_segments
-            
-            # Clean up indices as well (remove stale entries)
-            # Keep indices that reference steps in recent range
-            min_keep_step = keep_segments[0]['step'] if keep_segments else current_step
-            new_indices = {}
-            for ctx_hash, (start_h, end_h, step_start, step_end) in indices.items():
-                if step_end >= min_keep_step:
-                    # Keep this index, but update heights if needed
-                    # Note: Heights might be stale after cleanup, better to invalidate
-                    pass  # Skip for now, let it be recomputed on next access
-            master_data['indices'] = new_indices
     
     def _print_cache_stats(self):
         """Print cache hit rate statistics."""

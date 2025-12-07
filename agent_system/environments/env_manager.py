@@ -157,6 +157,8 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         self.extract_task(text_obs)
         if self.ocr_tool and self.ocr_tool.is_enabled():
             self.ocr_time = 0
+            # Reset OCRTool to clear all caches and statistics
+            self.ocr_tool.reset()
 
         full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands, compression_factors=None, init=True)
         return {'text': full_text_obs, 'image': trajectory_images, 'anchor': text_obs}, infos
@@ -173,8 +175,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
         self.pre_text_obs = text_obs
 
-        # Calculate bonus reward for compression (larger factor = small bonus)
-        compression_bonus = np.array([(cf - 1.0) * 0.01 for cf in compression_factors]) if compression_factors is not None else np.zeros(len(actions))
+        compression_bonus = np.array([(cf - 1.0) * 0.01 if cf <= 3.0 else -1.0 for cf in compression_factors]) if compression_factors is not None else np.zeros(len(actions))
         rewards = to_numpy(rewards) + compression_bonus
 
         full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands, compression_factors=compression_factors)
@@ -244,6 +245,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
             )
             end_time = time.time()
             self.ocr_time += end_time - start_time
+            print(f"Step {len(self.memory[0])+1}, OCR time: {end_time - start_time}")
         elif not init and self.config.env.history_length > 0:
             # OCRTool not enabled, but we still need to fetch memory for text obs
             memory_contexts, valid_lens = self.memory.fetch(

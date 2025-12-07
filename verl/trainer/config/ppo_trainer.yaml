@@ -319,13 +319,13 @@ ocr:
   agent_select_compression: False  # Enable agent to select compression factor for OCR images
   use_parallel: True  # Use parallel processing for batch conversion (faster for multiple trajectories)
   max_workers: null  # Number of parallel workers (null for auto-detection: min(32, cpu_count + 4))
-  font_size: 10  # Font size for text rendering (null for auto-calculation based on text length)
+  font_size: 8  # Font size for text rendering (null for auto-calculation based on text length)
   padding: 5  # Padding around text in pixels
   compact_format: True  # Whether to use compact format for trajectory display
   bg_color: [255, 255, 255]  # Background color as RGB tuple
   text_color: [0, 0, 0]  # Text color as RGB tuple
   font_path: null  # Path to custom font file (null for default system font)
   min_width: 28  # Minimum image width in pixels
-  max_width: 384  # Maximum image width in pixels
+  max_width: 336  # Maximum image width in pixels
   min_height: 28  # Minimum image height in pixels
-  max_height: 384  # Maximum image height in pixels
+  max_height: 2048  # Maximum image height in pixels
