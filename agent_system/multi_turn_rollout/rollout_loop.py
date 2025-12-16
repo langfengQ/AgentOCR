@@ -266,7 +266,10 @@ class TrajectoryCollector:
                     # success_rate
                     for key, value in success_rate.items():
                         data[key] = value
-
+                    if success['success_rate'][bs] > 0:
+                        data['is_done'] = True
+                    else:
+                        data['is_done'] = False
                     effective_batch.append(data)
             
         # Convert trajectory data to DataProto format
