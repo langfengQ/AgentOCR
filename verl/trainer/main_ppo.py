@@ -133,8 +133,10 @@ class TaskRunner:
             mapping[Role.RefPolicy] = global_pool_id
 
         reward_manager_name = config.reward_model.get("reward_manager", "episode")
+        if not config.ocr.use_ocr:
+            config.ocr.agent_select_compression = False
         if reward_manager_name == 'episode':
-            if config.ocr.agent_select_compression:
+            if config.ocr.use_ocr and config.ocr.agent_select_compression:
                 from agent_system.reward_manager import EpisodeRewardManager_Compression
                 reward_manager_cls = EpisodeRewardManager_Compression
                 reward_manager_kwargs = {
@@ -142,11 +144,12 @@ class TaskRunner:
                     "compression_reward_coef": config.ocr.compression_reward_coef,
                     "compression_failure_penalty_coef": config.ocr.compression_failure_penalty_coef,
                 }
+                print(f"Using EpisodeRewardManager_Compression with compression_factor_max: {config.ocr.compression_factor_max}, compression_reward_coef: {config.ocr.compression_reward_coef}, compression_failure_penalty_coef: {config.ocr.compression_failure_penalty_coef}")
             else:
                 from agent_system.reward_manager import EpisodeRewardManager
                 reward_manager_cls = EpisodeRewardManager
                 reward_manager_kwargs = {}
-
+                print(f"Using EpisodeRewardManager")
         else:
             raise NotImplementedError
 
