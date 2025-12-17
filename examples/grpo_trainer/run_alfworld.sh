@@ -7,6 +7,10 @@ ocr_use_parallel=True
 ocr_max_workers=64
 agent_select_compression=True
 
+# Compression reward manager configs
+compression_reward_coef=0.01  # base coefficient for compression reward
+compression_failure_penalty_coef=0.0  # >0 to enable compression-based penalty on failed trajectories
+
 num_cpus_per_env_worker=0.1 # The CPU resource allocated for each environment worker. If you want to use less CPU resources, you can decrease this value.
 
 train_data_size=16
@@ -21,10 +25,10 @@ if [ "$use_ocr" = "True" ]; then
 else
     mode="text"
     model=Qwen/Qwen2.5-3B-Instruct
-    max_prompt_length=4096
+    max_prompt_length=5120
 fi
 
-experiment_name="grpo_useocr${use_ocr}_agentcompress${agent_select_compression}"
+experiment_name="grpo_useocr${use_ocr}_agentcompress${agent_select_compression}_rewardcoef${compression_reward_coef}_failurepenalty${compression_failure_penalty_coef}"
 
 # We only use data preparation to indicate the modality and the data size.
 python3 -m examples.data_preprocess.prepare \
@@ -69,13 +73,15 @@ python3 -m verl.trainer.main_ppo \
     env.env_name=alfworld/AlfredTWEnv \
     env.seed=0 \
     env.max_steps=50 \
-    env.history_length=30 \
+    env.history_length=50 \
     env.rollout.n=$group_size \
     env.resources_per_worker.num_cpus=$num_cpus_per_env_worker \
     ocr.use_ocr=$use_ocr \
     ocr.use_parallel=$ocr_use_parallel \
     ocr.max_workers=$ocr_max_workers \
     ocr.agent_select_compression=$agent_select_compression \
+    ocr.compression_reward_coef=$compression_reward_coef \
+    ocr.compression_failure_penalty_coef=$compression_failure_penalty_coef \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='AgentOCR' \
