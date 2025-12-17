@@ -71,6 +71,9 @@ def alfworld_projection(actions: List[str], action_pools: List[List[str]], check
                     if compression_value < 1.0:
                         compression_value = 1.0
                         valids[i] = 0
+                    elif compression_value > 5.0:
+                        compression_value = 5.0
+                        valids[i] = 0
                     compression_factors[i] = compression_value
                 except:
                     # If parsing fails, keep default 1.0
