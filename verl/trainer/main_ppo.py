@@ -134,8 +134,13 @@ class TaskRunner:
 
         reward_manager_name = config.reward_model.get("reward_manager", "episode")
         if reward_manager_name == 'episode':
-            from agent_system.reward_manager import EpisodeRewardManager
-            reward_manager_cls = EpisodeRewardManager
+            if config.ocr.agent_select_compression:
+                from agent_system.reward_manager import EpisodeRewardManager_Compression
+                reward_manager_cls = EpisodeRewardManager_Compression
+            else:
+                from agent_system.reward_manager import EpisodeRewardManager
+                reward_manager_cls = EpisodeRewardManager
+
         else:
             raise NotImplementedError
 

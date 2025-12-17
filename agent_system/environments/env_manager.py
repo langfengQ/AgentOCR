@@ -175,8 +175,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
         self.pre_text_obs = text_obs
 
-        compression_bonus = np.array([(cf - 1.0) * 0.01 if cf <= 3.0 else -1.0 for cf in compression_factors]) if compression_factors is not None else np.zeros(len(actions))
-        rewards = to_numpy(rewards) + compression_bonus
+        rewards = to_numpy(rewards) 
 
         full_text_obs, trajectory_images = self.build_text_obs(text_obs, self.envs.get_admissible_commands, compression_factors=compression_factors)
         if infos[0].get("extra.gamefile") is None:
