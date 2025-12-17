@@ -21,7 +21,7 @@ class EpisodeRewardManager:
     """The reward manager.
     """
 
-    def __init__(self, tokenizer, num_examine, normalize_by_length=False) -> None:
+    def __init__(self, tokenizer, num_examine, normalize_by_length=False, **kwargs) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.normalize_by_length = normalize_by_length

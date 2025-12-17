@@ -18,13 +18,34 @@ import torch
 import numpy as np
 
 class EpisodeRewardManager_Compression:
-    """The reward manager.
+    """The reward manager with compression-aware reward.
+
+    The compression related behavior is controlled via config parameters passed
+    in from Hydra. All arguments have sensible defaults so that existing
+    experiments remain backward compatible.
     """
 
-    def __init__(self, tokenizer, num_examine, normalize_by_length=False) -> None:
+    def __init__(
+        self,
+        tokenizer,
+        num_examine,
+        normalize_by_length: bool = False,
+        compression_factor_max: float = 3.0,
+        compression_reward_coef: float = 0.01,
+        compression_failure_penalty_coef: float = 0.0,
+        **kwargs,
+    ) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.normalize_by_length = normalize_by_length
+
+        # Compression related configs
+        self.compression_factor_max = compression_factor_max
+        self.compression_reward_coef = compression_reward_coef
+        self.compression_failure_penalty_coef = compression_failure_penalty_coef
+        assert self.compression_factor_max > 1.0, "compression_factor_max must be greater than 1.0"
+        assert self.compression_reward_coef >= 0.0, "compression_reward_coef must be non-negative"
+        assert self.compression_failure_penalty_coef >= 0.0, "compression_failure_penalty_coef must be non-negative"
 
     def __call__(self, data: DataProto, return_dict=False):
         """We will expand this function gradually based on the available datasets"""
@@ -72,13 +93,18 @@ class EpisodeRewardManager_Compression:
             episode_rewards = data_item.non_tensor_batch['episode_rewards']
             episode_lengths = data_item.non_tensor_batch['episode_lengths']
 
-            compression_reward = 0
-            if data_item.non_tensor_batch['is_done'] and episode_rewards > 0:
-                compression_factor = data_item.non_tensor_batch['compression_factor']
-                compression_reward = (compression_factor - 1.0) * 0.01 if compression_factor <= 3.0 else -1.0
-            if data_item.non_tensor_batch['is_done'] and episode_rewards == 0:
+            is_success = data_item.non_tensor_batch['is_success']
+            compression_factor = data_item.non_tensor_batch['compression_factor']
+
+            if is_success:
+                compression_reward = (compression_factor - 1.0) * self.compression_reward_coef if compression_factor <= self.compression_factor_max else -1.0
+            else:
+                # Failed trajectories: optional compression-based penalty.
+                compression_reward = -(compression_factor - 1.0) * self.compression_failure_penalty_coef
+
+            if is_success and episode_rewards == 0:
                 print("Miss Match C1")
-            if not data_item.non_tensor_batch['is_done'] and episode_rewards > 0:
+            if not is_success and episode_rewards > 0:
                 print("Miss Match C2")
 
             if self.normalize_by_length:

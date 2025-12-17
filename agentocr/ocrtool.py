@@ -504,19 +504,14 @@ class OCRTool(BaseOCRTool):
                 # Cache hit on segments!
                 matched_segments, matched_ranges, matched_seg_infos, total_height = segment_match
                 
-                # Extract the new content (everything after matched segments)
-                matched_text = '\n'.join(matched_segments)
+                # Extract the new content by using segment count instead of string matching
+                # This avoids issues with whitespace/formatting differences
+                context_segments = [line.strip() for line in context.split('\n') if line.strip()]
+                num_matched = len(matched_segments)
                 
-                if context.startswith(matched_text):
-                    # Perfect prefix match
-                    new_content = context[len(matched_text):].lstrip('\n')
-                else:
-                    # Partial match - need to find where matched content ends
-                    # This can happen with sliding windows
-                    new_content = context
-                    for seg in matched_segments:
-                        if new_content.startswith(seg):
-                            new_content = new_content[len(seg):].lstrip('\n')
+                # The new segments are everything after the matched ones
+                new_segments = context_segments[num_matched:]
+                new_content = '\n'.join(new_segments) if new_segments else ''
                 
                 # Render only the new content
                 if new_content:
@@ -556,9 +551,9 @@ class OCRTool(BaseOCRTool):
                     
                     combined = np.vstack(combined_parts) if combined_parts else self._get_blank_array(**override_kwargs)
                 
-                # Cache this exact context for future use
-                master_data['indices'][context_hash] = (0, combined.shape[0], current_step, current_step)
-                
+                # Note: We don't cache the combined context here because:
+                # 1. matched_ranges may not start from 0, making (0, combined.shape[0]) incorrect
+                # 2. segment matching already provides efficient lookup for repeated contexts
                 
                 image_arrays.append(combined)
             else:
