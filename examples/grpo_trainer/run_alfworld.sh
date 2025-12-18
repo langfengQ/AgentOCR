@@ -10,7 +10,7 @@ ocr_max_workers=64
 compact_mode_enable=False
 
 # Agent-selected compression settings
-agent_select_compression_enable=False
+agent_select_compression_enable=True
 compression_reward_coef=0.01  # base coefficient for compression reward
 compression_failure_penalty_coef=0.0  # >0 to enable compression-based penalty on failed trajectories
 
@@ -31,7 +31,7 @@ else
     max_prompt_length=5120
 fi
 
-experiment_name="grpo_useocr${use_ocr}__compact${compact_mode_enable}__agentcompress${agent_select_compression_enable}_rewardcoef${compression_reward_coef}_failurepenalty${compression_failure_penalty_coef}"
+experiment_name="grpo_useocr${use_ocr}_compact${compact_mode_enable}_agentcompress${agent_select_compression_enable}_rewardcoef${compression_reward_coef}_failurepenalty${compression_failure_penalty_coef}"
 
 # We only use data preparation to indicate the modality and the data size.
 python3 -m examples.data_preprocess.prepare \
@@ -68,8 +68,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.free_cache_engine=False \
     actor_rollout_ref.rollout.val_kwargs.temperature=0.4 \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
-    actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=32 \
-    actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.use_invalid_action_penalty=True \
     actor_rollout_ref.actor.invalid_action_penalty_coef=0.1 \
     algorithm.use_kl_in_reward=False \

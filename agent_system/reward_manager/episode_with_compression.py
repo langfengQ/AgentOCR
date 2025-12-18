@@ -99,12 +99,12 @@ class EpisodeRewardManager_Compression:
             compression_factor = data_item.non_tensor_batch['compression_factor']
 
             if is_success:
-                compression_reward = (compression_factor - 1.0) * self.compression_reward_coef if compression_factor <= self.compression_factor_max else np.float32(-1.0)
+                compression_reward = (compression_factor - 1.0) * self.compression_reward_coef if compression_factor <= self.compression_factor_max else -1.0
             else:
                 # Failed trajectories: optional compression-based penalty.
                 compression_reward = -(compression_factor - 1.0) * self.compression_failure_penalty_coef
 
-            if is_success and episode_rewards == 0:
+            if is_success and episode_rewards <= 0:
                 print("Miss Match C1")
             if not is_success and episode_rewards > 0:
                 print("Miss Match C2")
