@@ -22,7 +22,15 @@ from functools import lru_cache
 import hashlib
 
 from .base import BaseOCRTool
-from .utils import trajectory_to_image
+from .utils import (
+    trajectory_to_image,
+    text_to_adaptive_image_compact,
+    apply_compact_mode,
+    get_font_metrics,
+    _get_cached_font,
+    COMPACT_NEWLINE_SYMBOL,
+    COMPACT_SYMBOL_COLOR
+)
 
 
 class OCRTool(BaseOCRTool):
@@ -54,7 +62,6 @@ class OCRTool(BaseOCRTool):
         enabled: bool = True,
         font_size: Optional[int] = 10,
         padding: int = 10,
-        compact_format: bool = True,
         bg_color: Tuple[int, int, int] = (255, 255, 255),
         text_color: Tuple[int, int, int] = (0, 0, 0),
         font_path: Optional[str] = None,
@@ -67,6 +74,9 @@ class OCRTool(BaseOCRTool):
         use_precise: bool = True,
         fast_mode: bool = True,
         enable_cache: bool = True,
+        compact_mode: bool = False,
+        compact_symbol: str = COMPACT_NEWLINE_SYMBOL,
+        compact_symbol_color: Tuple[int, int, int] = COMPACT_SYMBOL_COLOR,
         **kwargs
     ):
         """
@@ -77,7 +87,6 @@ class OCRTool(BaseOCRTool):
             enabled: Whether the tool is enabled (can be toggled at runtime)
             font_size: Font size for text rendering
             padding: Padding around text in pixels
-            compact_format: Whether to use compact format for trajectory display
             bg_color: Background color as RGB tuple
             text_color: Text color as RGB tuple
             font_path: Path to custom font file
@@ -90,12 +99,14 @@ class OCRTool(BaseOCRTool):
             use_precise: Use precise font measurements for optimal packing (recommended)
             fast_mode: Use fast mode (fixed width) for real-time performance (default True)
             enable_cache: Enable LRU caching of rendered images for speedup (default True)
+            compact_mode: Enable compact mode (replace newlines with colored symbols)
+            compact_symbol: Symbol to use for newline replacement in compact mode
+            compact_symbol_color: RGB color for the compact symbol
             **kwargs: Additional parameters passed to trajectory_to_image
         """
         self.enabled = enabled
         self.font_size = font_size
         self.padding = padding
-        self.compact_format = compact_format
         self.bg_color = tuple(bg_color)
         self.text_color = tuple(text_color)
         self.font_path = font_path
@@ -108,6 +119,9 @@ class OCRTool(BaseOCRTool):
         self.use_precise = use_precise
         self.fast_mode = fast_mode
         self.enable_cache = enable_cache
+        self.compact_mode = compact_mode
+        self.compact_symbol = compact_symbol
+        self.compact_symbol_color = tuple(compact_symbol_color)
         self.kwargs = kwargs
         # Initialize folder for saving trajectory images
         self.trajectory_images_dir = os.path.join(os.getcwd(), "logs/trajectory_images")
@@ -118,6 +132,19 @@ class OCRTool(BaseOCRTool):
         self._master_images = {} if enable_cache else None
         # Cache statistics
         self._cache_stats = {'hits': 0, 'misses': 0, 'total': 0}
+        # Compact mode cache: stores incomplete line text for each environment
+        # Format: {env_idx: {'incomplete_text': str, 'complete_lines_img': np.ndarray, 'complete_lines_count': int}}
+        self._compact_cache = {} if enable_cache and compact_mode else None
+        # Compact mode cache statistics
+        self._compact_cache_stats = {
+            'total': 0,              # Total render requests
+            'full_hits': 0,          # Exact context hash matches (no re-render needed)
+            'partial_hits': 0,       # Reused complete lines from cache
+            'misses': 0,             # No cache to reuse (first render or context changed)
+            'no_complete_lines': 0,  # Content too short to have complete lines to cache
+            'cached_lines_reused': 0,  # Total number of cached lines reused
+            'lines_rendered': 0,     # Total number of lines actually rendered
+        }
     
     def convert(
         self,
@@ -245,7 +272,6 @@ class OCRTool(BaseOCRTool):
             trajectory_text,
             font_size=config['font_size'],
             padding=config['padding'],
-            compact_format=config['compact_format'],
             bg_color=config['bg_color'],
             text_color=config['text_color'],
             font_path=config['font_path'],
@@ -255,6 +281,9 @@ class OCRTool(BaseOCRTool):
             max_height=config['max_height'],
             use_precise=config['use_precise'],
             fast_mode=config['fast_mode'],
+            compact_mode=config['compact_mode'],
+            compact_symbol=config['compact_symbol'],
+            compact_symbol_color=config['compact_symbol_color'],
             **config['extra_kwargs']
         )
         
@@ -293,7 +322,7 @@ class OCRTool(BaseOCRTool):
     def _get_cache_key(self, text: str, config: Dict[str, Any]) -> str:
         """Generate a cache key for a text and config combination."""
         # Use hash for efficient key generation
-        config_str = f"{config['font_size']}_{config['padding']}_{config['compact_format']}"
+        config_str = f"{config['font_size']}_{config['padding']}"
         config_str += f"_{config['min_width']}_{config['max_width']}_{config['use_precise']}_{config['fast_mode']}"
         key = f"{hash(text)}_{config_str}"
         return key
@@ -311,9 +340,10 @@ class OCRTool(BaseOCRTool):
         # Extract extra kwargs that are not direct parameters
         extra_kwargs = {}
         direct_params = {
-            'font_size', 'padding', 'compact_format',
+            'font_size', 'padding',
             'bg_color', 'text_color', 'font_path', 'min_width', 'max_width',
-            'min_height', 'max_height', 'use_precise', 'fast_mode'
+            'min_height', 'max_height', 'use_precise', 'fast_mode',
+            'compact_mode', 'compact_symbol', 'compact_symbol_color'
         }
         
         for key, value in override_kwargs.items():
@@ -326,7 +356,6 @@ class OCRTool(BaseOCRTool):
         return {
             'font_size': override_kwargs.get('font_size', self.font_size),
             'padding': override_kwargs.get('padding', self.padding),
-            'compact_format': override_kwargs.get('compact_format', self.compact_format),
             'bg_color': override_kwargs.get('bg_color', self.bg_color),
             'text_color': override_kwargs.get('text_color', self.text_color),
             'font_path': override_kwargs.get('font_path', self.font_path),
@@ -336,6 +365,9 @@ class OCRTool(BaseOCRTool):
             'max_height': override_kwargs.get('max_height', self.max_height),
             'use_precise': override_kwargs.get('use_precise', self.use_precise),
             'fast_mode': override_kwargs.get('fast_mode', self.fast_mode),
+            'compact_mode': override_kwargs.get('compact_mode', self.compact_mode),
+            'compact_symbol': override_kwargs.get('compact_symbol', self.compact_symbol),
+            'compact_symbol_color': override_kwargs.get('compact_symbol_color', self.compact_symbol_color),
             'extra_kwargs': extra_kwargs
         }
     
@@ -355,6 +387,40 @@ class OCRTool(BaseOCRTool):
     def disable(self):
         """Disable the OCR tool."""
         self.enabled = False
+    
+    def enable_compact_mode(self):
+        """
+        Enable compact mode (replace newlines with colored symbols).
+        Initializes compact cache if not already present.
+        """
+        self.compact_mode = True
+        if self._compact_cache is None and self.enable_cache:
+            self._compact_cache = {}
+    
+    def disable_compact_mode(self):
+        """
+        Disable compact mode (use normal newline rendering).
+        Clears compact cache to free memory.
+        """
+        self.compact_mode = False
+        if self._compact_cache is not None:
+            self._compact_cache.clear()
+    
+    def is_compact_mode(self) -> bool:
+        """Check if compact mode is enabled."""
+        return self.compact_mode
+    
+    def set_compact_symbol(self, symbol: str, color: Optional[Tuple[int, int, int]] = None):
+        """
+        Set the symbol used for newline replacement in compact mode.
+        
+        Args:
+            symbol: The symbol to use (e.g., '⏎', '↵', '¶')
+            color: Optional RGB color tuple for the symbol
+        """
+        self.compact_symbol = symbol
+        if color is not None:
+            self.compact_symbol_color = tuple(color)
     
     def update_config(self, **kwargs):
         """
@@ -378,8 +444,23 @@ class OCRTool(BaseOCRTool):
         if self._master_images is not None:
             self._master_images.clear()
         
+        # Clear compact mode cache
+        if self._compact_cache is not None:
+            self._compact_cache.clear()
+        
         # Reset cache statistics
         self._cache_stats = {'hits': 0, 'misses': 0, 'total': 0}
+        
+        # Reset compact mode cache statistics
+        self._compact_cache_stats = {
+            'total': 0,
+            'full_hits': 0,
+            'partial_hits': 0,
+            'misses': 0,
+            'no_complete_lines': 0,
+            'cached_lines_reused': 0,
+            'lines_rendered': 0,
+        }
     
     def _find_matching_segments(self, context: str, env_idx: int) -> Optional[Tuple[List[str], List[Tuple[int, int]], List[Dict], int]]:
         """
@@ -578,6 +659,275 @@ class OCRTool(BaseOCRTool):
         
         return image_arrays
     
+    def _convert_incremental_compact(
+        self,
+        trajectory_contexts: List[str],
+        current_steps: List[int],
+        **override_kwargs
+    ) -> List[np.ndarray]:
+        """
+        Convert trajectory texts to images using compact mode with incremental caching.
+        
+        In compact mode:
+        - Newlines are replaced with colored symbols (e.g., ⏎)
+        - All content is treated as a single paragraph
+        - Line wrapping happens due to fixed width
+        - Complete lines (filled to width) are cached as images
+        - Incomplete lines are kept as text and prepended to next render
+        
+        Caching Strategy:
+        - Track the text that corresponds to cached complete lines
+        - If new context starts with cached text, reuse cached image
+        - Only render new content (incomplete text + new additions)
+        
+        Args:
+            trajectory_contexts: List of trajectory text strings
+            current_steps: List of current step numbers for each environment
+            **override_kwargs: Override configuration parameters
+        
+        Returns:
+            List of numpy arrays representing the images
+        """
+        if self._compact_cache is None:
+            self._compact_cache = {}
+        
+        config = self._get_config(**override_kwargs)
+        image_arrays = []
+        
+        for env_idx, (context, current_step) in enumerate(zip(trajectory_contexts, current_steps)):
+            self._cache_stats['total'] += 1
+            self._compact_cache_stats['total'] += 1
+            
+            context = context.strip() if context else ""
+            if not context:
+                self._cache_stats['misses'] += 1
+                self._compact_cache_stats['misses'] += 1
+                image_arrays.append(self._get_blank_array(**override_kwargs))
+                continue
+            
+            # Initialize compact cache for this environment if needed
+            if env_idx not in self._compact_cache:
+                self._compact_cache[env_idx] = {
+                    'complete_lines_img': None,
+                    'complete_lines_count': 0,
+                    'last_full_compact_text': '',  # Full compact text from last render
+                    'incomplete_text': '',          # Remaining text (didn't fill a line)
+                    'last_context_hash': None
+                }
+            
+            cache_data = self._compact_cache[env_idx]
+            context_hash = hash(context)
+            
+            # Apply compact mode transformation to get the full compact text
+            compact_text = apply_compact_mode(context, config['compact_symbol'])
+            
+            # Check if this is the exact same context (full cache hit)
+            if cache_data['last_context_hash'] == context_hash and cache_data['complete_lines_img'] is not None:
+                self._cache_stats['hits'] += 1
+                self._compact_cache_stats['full_hits'] += 1
+                self._compact_cache_stats['cached_lines_reused'] += cache_data['complete_lines_count']
+                # Reconstruct from cached complete lines + incomplete portion
+                result = self._render_compact_with_cache(env_idx, context, config)
+                image_arrays.append(result)
+                continue
+            
+            # Check if new context EXTENDS the cached content (incremental hit)
+            # We check if the new compact_text starts with the last full compact_text
+            last_compact_text = cache_data.get('last_full_compact_text', '')
+            can_reuse_cache = (
+                cache_data['complete_lines_img'] is not None and
+                last_compact_text and
+                compact_text.startswith(last_compact_text)
+            )
+            
+            if can_reuse_cache:
+                # Incremental update: reuse cached complete lines, only render new content
+                self._cache_stats['hits'] += 1
+                self._compact_cache_stats['partial_hits'] += 1
+                self._compact_cache_stats['cached_lines_reused'] += cache_data['complete_lines_count']
+                
+                # Get font metrics
+                font = _get_cached_font(config['font_path'], config['font_size'])
+                _, line_height = get_font_metrics(font, config['font_size'])
+                
+                # The new content is everything after the last full compact text
+                new_addition = compact_text[len(last_compact_text):].strip()
+                
+                # Text to render = incomplete_text from before + new_addition
+                if cache_data['incomplete_text']:
+                    text_to_render = cache_data['incomplete_text'] + ' ' + new_addition
+                else:
+                    text_to_render = new_addition
+                text_to_render = text_to_render.strip()
+                
+                if text_to_render:
+                    # Render only the new content
+                    new_img, new_complete_lines, new_incomplete_text, new_lines = text_to_adaptive_image_compact(
+                        text_to_render,
+                        font_size=config['font_size'],
+                        padding=0,
+                        bg_color=config['bg_color'],
+                        text_color=config['text_color'],
+                        font_path=config['font_path'],
+                        min_width=config['min_width'],
+                        max_width=config['max_width'],
+                        min_height=0,
+                        max_height=config['max_height'],
+                        use_precise=config['use_precise'],
+                        compact_symbol=config['compact_symbol'],
+                        compact_symbol_color=config['compact_symbol_color']
+                    )
+                    new_img_array = np.array(new_img)
+                    
+                    # Track newly rendered lines
+                    self._compact_cache_stats['lines_rendered'] += len(new_lines)
+                    
+                    # Combine cached complete lines with newly rendered content
+                    combined = np.vstack([cache_data['complete_lines_img'], new_img_array])
+                    
+                    # Update cache
+                    if new_complete_lines > 0:
+                        new_complete_height = new_complete_lines * line_height
+                        
+                        # New cached image = old cached + new complete lines portion
+                        total_cached_height = cache_data['complete_lines_img'].shape[0] + new_complete_height
+                        cache_data['complete_lines_img'] = combined[:total_cached_height, :, :].copy()
+                        cache_data['complete_lines_count'] += new_complete_lines
+                    
+                    cache_data['incomplete_text'] = new_incomplete_text
+                    cache_data['last_full_compact_text'] = compact_text  # Store the full compact text
+                    cache_data['last_context_hash'] = context_hash
+                    
+                    image_arrays.append(combined)
+                else:
+                    # No new content, just use cached (shouldn't happen often)
+                    cache_data['last_full_compact_text'] = compact_text
+                    cache_data['last_context_hash'] = context_hash
+                    result = self._render_compact_with_cache(env_idx, context, config)
+                    image_arrays.append(result)
+            else:
+                # Cache miss or context doesn't extend cached content - full re-render
+                self._cache_stats['misses'] += 1
+                
+                # Render the full compact text
+                img, num_complete_lines, incomplete_text, lines = text_to_adaptive_image_compact(
+                    compact_text,
+                    font_size=config['font_size'],
+                    padding=0,
+                    bg_color=config['bg_color'],
+                    text_color=config['text_color'],
+                    font_path=config['font_path'],
+                    min_width=config['min_width'],
+                    max_width=config['max_width'],
+                    min_height=0,
+                    max_height=config['max_height'],
+                    use_precise=config['use_precise'],
+                    compact_symbol=config['compact_symbol'],
+                    compact_symbol_color=config['compact_symbol_color']
+                )
+                
+                img_array = np.array(img)
+                
+                # Get font metrics for height calculations
+                font = _get_cached_font(config['font_path'], config['font_size'])
+                _, line_height = get_font_metrics(font, config['font_size'])
+                
+                # Track lines rendered
+                self._compact_cache_stats['lines_rendered'] += len(lines)
+                
+                # Update cache with complete lines
+                if num_complete_lines > 0:
+                    complete_height = num_complete_lines * line_height
+                    cache_data['complete_lines_img'] = img_array[:complete_height, :, :].copy()
+                    cache_data['complete_lines_count'] = num_complete_lines
+                    # This is a real miss (had to re-render with cacheable content)
+                    self._compact_cache_stats['misses'] += 1
+                else:
+                    cache_data['complete_lines_img'] = None
+                    cache_data['complete_lines_count'] = 0
+                    # Content too short to fill a complete line - not a cache failure
+                    self._compact_cache_stats['no_complete_lines'] += 1
+                
+                cache_data['incomplete_text'] = incomplete_text
+                cache_data['last_full_compact_text'] = compact_text  # Store full compact text for next comparison
+                cache_data['last_context_hash'] = context_hash
+                
+                image_arrays.append(img_array)
+            
+            # Periodically print compact cache stats
+            if self._compact_cache_stats['total'] % 256 == 0:
+                self._print_compact_cache_stats()
+        
+        return image_arrays
+    
+    def _render_compact_with_cache(
+        self,
+        env_idx: int,
+        context: str,
+        config: Dict[str, Any]
+    ) -> np.ndarray:
+        """
+        Render compact mode image using cached complete lines.
+        
+        Args:
+            env_idx: Environment index
+            context: Current context text
+            config: Configuration dictionary
+        
+        Returns:
+            Rendered image as numpy array
+        """
+        cache_data = self._compact_cache[env_idx]
+        
+        # If no cached complete lines, render from scratch
+        if cache_data['complete_lines_img'] is None:
+            img, _, incomplete_text, _ = text_to_adaptive_image_compact(
+                context,
+                font_size=config['font_size'],
+                padding=0,
+                bg_color=config['bg_color'],
+                text_color=config['text_color'],
+                font_path=config['font_path'],
+                min_width=config['min_width'],
+                max_width=config['max_width'],
+                min_height=0,
+                max_height=config['max_height'],
+                use_precise=config['use_precise'],
+                compact_symbol=config['compact_symbol'],
+                compact_symbol_color=config['compact_symbol_color']
+            )
+            cache_data['incomplete_text'] = incomplete_text
+            return np.array(img)
+        
+        # Render only the incomplete portion and combine with cached complete lines
+        incomplete_text = cache_data['incomplete_text']
+        
+        if incomplete_text:
+            # Render the incomplete text
+            img, _, new_incomplete, _ = text_to_adaptive_image_compact(
+                incomplete_text,
+                font_size=config['font_size'],
+                padding=0,
+                bg_color=config['bg_color'],
+                text_color=config['text_color'],
+                font_path=config['font_path'],
+                min_width=config['min_width'],
+                max_width=config['max_width'],
+                min_height=0,
+                max_height=config['max_height'],
+                use_precise=config['use_precise'],
+                compact_symbol=config['compact_symbol'],
+                compact_symbol_color=config['compact_symbol_color']
+            )
+            incomplete_img = np.array(img)
+            
+            # Combine cached complete lines with incomplete line render
+            combined = np.vstack([cache_data['complete_lines_img'], incomplete_img])
+            return combined
+        else:
+            # No incomplete text, just return cached complete lines
+            return cache_data['complete_lines_img'].copy()
+    
     def _update_master_image(self, env_idx: int, context: str, context_hash: int,
                             new_img: np.ndarray, line_ranges: Optional[List[Tuple[int, int]]],
                             step_start: int, step_end: int,
@@ -665,6 +1015,65 @@ class OCRTool(BaseOCRTool):
             'hit_rate': f'{hit_rate:.1f}%'
         }
     
+    def _print_compact_cache_stats(self):
+        """Print compact mode cache statistics with detailed breakdown."""
+        stats = self._compact_cache_stats
+        total = stats['total']
+        full_hits = stats['full_hits']
+        partial_hits = stats['partial_hits']
+        misses = stats['misses']
+        no_complete = stats['no_complete_lines']
+        cached_lines = stats['cached_lines_reused']
+        rendered_lines = stats['lines_rendered']
+        
+        # Calculate rates (exclude no_complete_lines from miss rate since it's not a cache failure)
+        cacheable_total = total - no_complete
+        full_hit_rate = (full_hits / cacheable_total * 100) if cacheable_total > 0 else 0
+        partial_hit_rate = (partial_hits / cacheable_total * 100) if cacheable_total > 0 else 0
+        total_hit_rate = ((full_hits + partial_hits) / cacheable_total * 100) if cacheable_total > 0 else 0
+        
+        # Calculate line-level savings
+        total_lines = cached_lines + rendered_lines
+        line_savings = (cached_lines / total_lines * 100) if total_lines > 0 else 0
+        
+        print(f"[OCR Compact Cache] Total: {total} | "
+              f"Full Hits: {full_hits} ({full_hit_rate:.1f}%) | "
+              f"Partial Hits: {partial_hits} ({partial_hit_rate:.1f}%) | "
+              f"Misses: {misses} | "
+              f"NoCache: {no_complete} | "
+              f"Hit Rate: {total_hit_rate:.1f}%")
+        print(f"[OCR Compact Cache] Lines Reused: {cached_lines} | "
+              f"Lines Rendered: {rendered_lines} | "
+              f"Line Savings: {line_savings:.1f}%")
+    
+    def get_compact_cache_stats(self):
+        """Get compact mode cache statistics."""
+        stats = self._compact_cache_stats
+        total = stats['total']
+        full_hits = stats['full_hits']
+        partial_hits = stats['partial_hits']
+        no_complete = stats['no_complete_lines']
+        cached_lines = stats['cached_lines_reused']
+        rendered_lines = stats['lines_rendered']
+        
+        # Calculate hit rate excluding non-cacheable requests
+        cacheable_total = total - no_complete
+        total_hit_rate = ((full_hits + partial_hits) / cacheable_total * 100) if cacheable_total > 0 else 0
+        total_lines = cached_lines + rendered_lines
+        line_savings = (cached_lines / total_lines * 100) if total_lines > 0 else 0
+        
+        return {
+            'total': total,
+            'full_hits': full_hits,
+            'partial_hits': partial_hits,
+            'misses': stats['misses'],
+            'no_complete_lines': no_complete,
+            'hit_rate': f'{total_hit_rate:.1f}%',
+            'cached_lines_reused': cached_lines,
+            'lines_rendered': rendered_lines,
+            'line_savings': f'{line_savings:.1f}%'
+        }
+    
     def convert_texts_to_images(
         self,
         trajectory_contexts: Optional[List[str]],
@@ -708,9 +1117,16 @@ class OCRTool(BaseOCRTool):
             image_arrays = self.create_blank_images(batch_size, **override_kwargs)
         # Incremental rendering mode
         elif enable_cache and current_steps is not None and self.enable_cache:
-            image_arrays = self._convert_incremental(
-                trajectory_contexts, current_steps, **render_kwargs
-            )
+            # Use compact mode incremental caching if compact mode is enabled
+            compact_mode = override_kwargs.get('compact_mode', self.compact_mode)
+            if compact_mode:
+                image_arrays = self._convert_incremental_compact(
+                    trajectory_contexts, current_steps, **render_kwargs
+                )
+            else:
+                image_arrays = self._convert_incremental(
+                    trajectory_contexts, current_steps, **render_kwargs
+                )
         else:
             # Convert trajectory texts to images (normal mode)
             images = self.convert_batch(trajectory_contexts, **render_kwargs)

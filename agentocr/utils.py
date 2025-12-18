@@ -1,10 +1,57 @@
 from PIL import Image, ImageDraw, ImageFont
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict, Any
 import re
 from functools import lru_cache
 
 # Global font cache
 _FONT_CACHE = {}
+
+# Compact mode special symbol and colors
+COMPACT_NEWLINE_SYMBOL = "⏎"  # Return symbol to represent newlines
+COMPACT_SYMBOL_COLOR = (255, 0, 0)  # Teal color for visibility
+
+
+def apply_compact_mode(text: str, symbol: str = COMPACT_NEWLINE_SYMBOL) -> str:
+    """
+    Convert text to compact mode by replacing newlines with a special symbol.
+    
+    Args:
+        text: Original text with newlines
+        symbol: Symbol to replace newlines with (default: ⏎)
+    
+    Returns:
+        Text with newlines replaced by the symbol, treated as single paragraph
+    """
+    if not text:
+        return ""
+    
+    # Replace newlines with the symbol (add space around for readability)
+    compact_text = text.replace('\n', f' {symbol} ')
+    # Clean up multiple spaces
+    compact_text = ' '.join(compact_text.split())
+    return compact_text
+
+
+def get_compact_symbol_positions(text: str, symbol: str = COMPACT_NEWLINE_SYMBOL) -> List[int]:
+    """
+    Find positions of compact mode symbols in text.
+    
+    Args:
+        text: Text containing compact symbols
+        symbol: The symbol to find
+    
+    Returns:
+        List of character positions where the symbol appears
+    """
+    positions = []
+    start = 0
+    while True:
+        pos = text.find(symbol, start)
+        if pos == -1:
+            break
+        positions.append(pos)
+        start = pos + 1
+    return positions
 
 
 def _get_cached_font(font_path: Optional[str], font_size: int) -> ImageFont.FreeTypeFont:
@@ -156,6 +203,83 @@ def wrap_text_fast(text: str, max_chars_per_line: int) -> List[Tuple[str, bool]]
             lines.append((current_line, not is_last_para))
     
     return lines
+
+
+def wrap_text_compact(
+    text: str, 
+    max_chars_per_line: int
+) -> Tuple[List[Tuple[str, bool]], int, str]:
+    """
+    Wrap text for compact mode (single paragraph, no newline splitting).
+    
+    This function is specifically designed for compact mode caching:
+    - All text is treated as a single paragraph
+    - Returns information about complete vs incomplete lines for caching
+    
+    Args:
+        text: Text to wrap (should already have newlines replaced with symbols)
+        max_chars_per_line: Maximum characters per line
+    
+    Returns:
+        Tuple of:
+        - lines: List of (line_text, is_complete) tuples
+                 is_complete=True means the line filled the available width
+        - complete_char_count: Number of characters in complete lines
+        - incomplete_text: Text that doesn't fill a complete line (for next render)
+    """
+    if not text:
+        return [], 0, ""
+    
+    text = text.strip()
+    if not text:
+        return [], 0, ""
+    
+    lines = []
+    words = text.split()
+    current_line = ""
+    current_len = 0
+    char_position = 0  # Track position in original text
+    complete_char_count = 0
+    
+    for word_idx, word in enumerate(words):
+        word_len = len(word)
+        test_len = current_len + (1 if current_len else 0) + word_len
+        
+        if test_len <= max_chars_per_line:
+            if current_line:
+                current_line += " " + word
+                current_len = test_len
+            else:
+                current_line = word
+                current_len = word_len
+        else:
+            if current_line:
+                # This line is complete (filled to capacity)
+                lines.append((current_line, True))
+                complete_char_count += len(current_line) + 1  # +1 for the space that would follow
+            
+            if word_len > max_chars_per_line:
+                # Split long words
+                for i in range(0, word_len, max_chars_per_line):
+                    chunk = word[i:i + max_chars_per_line]
+                    is_complete = (i + max_chars_per_line < word_len)
+                    lines.append((chunk, is_complete))
+                    if is_complete:
+                        complete_char_count += len(chunk)
+                current_line = ""
+                current_len = 0
+            else:
+                current_line = word
+                current_len = word_len
+    
+    # Handle the last line (incomplete - didn't fill the width)
+    incomplete_text = ""
+    if current_line:
+        lines.append((current_line, False))  # Last line is never "complete"
+        # The incomplete text is the last line's content
+        incomplete_text = current_line
+    
+    return lines, complete_char_count, incomplete_text
 
 
 def wrap_text_precise(text: str, max_width: int, font, font_size: int) -> List[Tuple[str, bool]]:
@@ -411,6 +535,9 @@ def text_to_adaptive_image(
     max_height: int = 1024,
     use_precise: bool = True,
     fast_mode: bool = True,
+    compact_mode: bool = False,
+    compact_symbol: str = COMPACT_NEWLINE_SYMBOL,
+    compact_symbol_color: Tuple[int, int, int] = COMPACT_SYMBOL_COLOR,
     **kwargs,
 ) -> Image.Image:
     """
@@ -430,11 +557,18 @@ def text_to_adaptive_image(
         max_height: Maximum image height
         use_precise: Use precise font measurements (recommended, slightly slower but optimal)
         fast_mode: Use fast mode (fixed width) instead of binary search (much faster)
+        compact_mode: Enable compact mode (replace newlines with colored symbols)
+        compact_symbol: Symbol to use for newline replacement in compact mode
+        compact_symbol_color: RGB color for the compact symbol
     
     Returns:
         PIL Image with optimally packed text
     """
     text = text.strip() if text else ""
+    
+    # Apply compact mode transformation if enabled
+    if compact_mode:
+        text = apply_compact_mode(text, compact_symbol)
     
     optimized_padding = padding
 
@@ -470,7 +604,14 @@ def text_to_adaptive_image(
     paragraph_spacing = int(line_height * 0.0)
     
     for line_text, is_paragraph_end in lines:
-        draw.text((optimized_padding, y_position), line_text, fill=text_color, font=font)
+        if compact_mode and compact_symbol in line_text:
+            # Render with colored symbols
+            _render_line_with_colored_symbols(
+                draw, line_text, optimized_padding, y_position,
+                text_color, compact_symbol, compact_symbol_color, font
+            )
+        else:
+            draw.text((optimized_padding, y_position), line_text, fill=text_color, font=font)
         y_position += line_height
         # Add extra spacing after paragraph end
         if is_paragraph_end:
@@ -479,13 +620,170 @@ def text_to_adaptive_image(
     return img
 
 
+def _render_line_with_colored_symbols(
+    draw: ImageDraw.ImageDraw,
+    line_text: str,
+    x: int,
+    y: int,
+    text_color: Tuple[int, int, int],
+    symbol: str,
+    symbol_color: Tuple[int, int, int],
+    font: ImageFont.FreeTypeFont
+) -> None:
+    """
+    Render a line of text with colored symbols for compact mode.
+    
+    Args:
+        draw: PIL ImageDraw object
+        line_text: Text to render
+        x: X position
+        y: Y position
+        text_color: Color for regular text
+        symbol: The symbol to render in different color
+        symbol_color: Color for the symbol
+        font: Font to use
+    """
+    current_x = x
+    parts = line_text.split(symbol)
+    
+    for i, part in enumerate(parts):
+        # Draw the text part
+        if part:
+            draw.text((current_x, y), part, fill=text_color, font=font)
+            try:
+                bbox = font.getbbox(part)
+                current_x += bbox[2] - bbox[0]
+            except:
+                current_x += len(part) * 6  # Fallback
+        
+        # Draw the symbol (except after the last part)
+        if i < len(parts) - 1:
+            draw.text((current_x, y), symbol, fill=symbol_color, font=font)
+            try:
+                bbox = font.getbbox(symbol)
+                current_x += bbox[2] - bbox[0]
+            except:
+                current_x += 10  # Fallback
+
+
+def text_to_adaptive_image_compact(
+    text: str,
+    font_size: int = 8,
+    padding: int = 8,
+    bg_color: Tuple[int, int, int] = (255, 255, 255),
+    text_color: Tuple[int, int, int] = (0, 0, 0),
+    font_path: Optional[str] = None,
+    min_width: int = 28,
+    max_width: int = 1024,
+    min_height: int = 28,
+    max_height: int = 1024,
+    use_precise: bool = False,
+    compact_symbol: str = COMPACT_NEWLINE_SYMBOL,
+    compact_symbol_color: Tuple[int, int, int] = COMPACT_SYMBOL_COLOR,
+    **kwargs,
+) -> Tuple[Image.Image, int, str, List[Tuple[str, bool]]]:
+    """
+    Convert text to image in compact mode with caching metadata.
+    
+    This function is designed for incremental caching in compact mode:
+    - Returns the number of complete lines and their character count
+    - Returns the incomplete line's text for prepending to next render
+    
+    Args:
+        text: Input text to render (newlines will be replaced with symbols)
+        font_size: Font size
+        padding: Padding in pixels
+        bg_color: Background color RGB tuple
+        text_color: Text color RGB tuple
+        font_path: Custom font path
+        min_width: Minimum image width
+        max_width: Maximum image width
+        min_height: Minimum image height
+        max_height: Maximum image height
+        use_precise: Use precise font measurements
+        compact_symbol: Symbol to use for newline replacement
+        compact_symbol_color: Color for the compact symbol
+    
+    Returns:
+        Tuple of:
+        - img: PIL Image with rendered text
+        - num_complete_lines: Number of lines that filled the available width
+        - incomplete_text: Text from the last incomplete line (for next render)
+        - lines: List of (line_text, is_complete) tuples
+    """
+    text = text.strip() if text else ""
+    
+    # Apply compact mode transformation
+    compact_text = apply_compact_mode(text, compact_symbol)
+    
+    optimized_padding = padding
+    min_width = max(min_width, 28)
+    max_width = min(max_width, 1024)
+    
+    # Use cached font
+    font = _get_cached_font(font_path, font_size)
+    
+    # Get font metrics
+    avg_char_width, line_height = get_font_metrics(font, font_size)
+    
+    # Use fixed width (fast mode) for compact rendering
+    width = max_width
+    available_width = width - 2 * padding
+    max_chars_per_line = int(available_width / avg_char_width)
+    
+    # Wrap text with compact mode logic
+    lines, complete_char_count, incomplete_text = wrap_text_compact(
+        compact_text, max_chars_per_line
+    )
+    
+    # Count complete lines
+    num_complete_lines = sum(1 for _, is_complete in lines if is_complete)
+    
+    # Calculate required height
+    required_height = len(lines) * line_height + 2 * padding
+    height = max(min_height, min(max_height, required_height))
+    
+    # Truncate lines if needed
+    if required_height > max_height:
+        available_height = height - 2 * padding
+        max_lines = int(available_height / line_height)
+        lines = lines[:max_lines]
+        # Recalculate complete lines and incomplete text
+        num_complete_lines = sum(1 for _, is_complete in lines if is_complete)
+        if lines:
+            _, last_is_complete = lines[-1]
+            if not last_is_complete:
+                incomplete_text = lines[-1][0]
+    
+    # Create image
+    img = Image.new('RGB', (width, height), bg_color)
+    draw = ImageDraw.Draw(img)
+    
+    # Render text with colored symbols
+    y_position = optimized_padding
+    
+    for line_text, _ in lines:
+        if compact_symbol in line_text:
+            _render_line_with_colored_symbols(
+                draw, line_text, optimized_padding, y_position,
+                text_color, compact_symbol, compact_symbol_color, font
+            )
+        else:
+            draw.text((optimized_padding, y_position), line_text, fill=text_color, font=font)
+        y_position += line_height
+    
+    return img, num_complete_lines, incomplete_text, lines
+
+
 def trajectory_to_image(
     trajectory_text: str,
     font_size: int = 8,
     padding: int = 8,
-    compact_format: bool = True,
     use_precise: bool = True,
     fast_mode: bool = True,
+    compact_mode: bool = False,
+    compact_symbol: str = COMPACT_NEWLINE_SYMBOL,
+    compact_symbol_color: Tuple[int, int, int] = COMPACT_SYMBOL_COLOR,
     **kwargs
 ) -> Image.Image:
     """
@@ -496,23 +794,17 @@ def trajectory_to_image(
         trajectory_text: Trajectory text to render
         font_size: Font size (default 8 for optimal density)
         padding: Padding in pixels (optimized to 8 for minimal waste)
-        compact_format: Whether to use compact format for trajectory
         use_precise: Use precise font measurements for optimal packing (recommended)
         fast_mode: Use fast mode (fixed width) for real-time performance (default True)
+        compact_mode: Enable compact mode (replace newlines with colored symbols)
+        compact_symbol: Symbol to use for newline replacement in compact mode
+        compact_symbol_color: RGB color for the compact symbol
         **kwargs: Additional parameters passed to text_to_adaptive_image
 
     Returns:
         PIL Image object with optimally packed text
     """
     trajectory_text = trajectory_text.strip() if trajectory_text else ""
-    pairs = []
-    # if "[Observation" in trajectory_text and "Action" in trajectory_text:
-    #     pairs = parse_trajectory_text(trajectory_text)
-    #     if pairs and compact_format:
-    #         formatted_text = format_trajectory_compact(pairs)
-    #     else:
-    #         formatted_text = trajectory_text
-    # else:
     formatted_text = trajectory_text
 
     return text_to_adaptive_image(
@@ -521,5 +813,8 @@ def trajectory_to_image(
         padding=padding,
         use_precise=use_precise,
         fast_mode=fast_mode,
+        compact_mode=compact_mode,
+        compact_symbol=compact_symbol,
+        compact_symbol_color=compact_symbol_color,
         **kwargs
     )

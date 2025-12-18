@@ -5,9 +5,12 @@ export CUDA_VISIBLE_DEVICES=0,1
 use_ocr=True
 ocr_use_parallel=True
 ocr_max_workers=64
-agent_select_compression=True
 
-# Compression reward manager configs
+# Compact mode settings (replace newlines with colored symbols)
+compact_mode_enable=False
+
+# Agent-selected compression settings
+agent_select_compression_enable=False
 compression_reward_coef=0.01  # base coefficient for compression reward
 compression_failure_penalty_coef=0.0  # >0 to enable compression-based penalty on failed trajectories
 
@@ -20,7 +23,7 @@ group_size=8
 # Set mode based on use_ocr: visual if use_ocr=True, text otherwise
 if [ "$use_ocr" = "True" ]; then
     mode="visual"
-    model=Qwen/Qwen2.5-VL-3B-Instruct
+    model=Qwen/Qwen2.5-VL-3B-Instruct # Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen3-VL-2B-Instruct
     max_prompt_length=2048
 else
     mode="text"
@@ -28,7 +31,7 @@ else
     max_prompt_length=5120
 fi
 
-experiment_name="grpo_useocr${use_ocr}_agentcompress${agent_select_compression}_rewardcoef${compression_reward_coef}_failurepenalty${compression_failure_penalty_coef}"
+experiment_name="grpo_useocr${use_ocr}__compact${compact_mode_enable}__agentcompress${agent_select_compression_enable}_rewardcoef${compression_reward_coef}_failurepenalty${compression_failure_penalty_coef}"
 
 # We only use data preparation to indicate the modality and the data size.
 python3 -m examples.data_preprocess.prepare \
@@ -51,7 +54,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
@@ -59,7 +62,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=$ENGINE \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \
@@ -79,9 +82,10 @@ python3 -m verl.trainer.main_ppo \
     ocr.use_ocr=$use_ocr \
     ocr.use_parallel=$ocr_use_parallel \
     ocr.max_workers=$ocr_max_workers \
-    ocr.agent_select_compression=$agent_select_compression \
-    ocr.compression_reward_coef=$compression_reward_coef \
-    ocr.compression_failure_penalty_coef=$compression_failure_penalty_coef \
+    ocr.compact_mode.enable=$compact_mode_enable \
+    ocr.agent_select_compression.enable=$agent_select_compression_enable \
+    ocr.agent_select_compression.compression_reward_coef=$compression_reward_coef \
+    ocr.agent_select_compression.compression_failure_penalty_coef=$compression_failure_penalty_coef \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='AgentOCR' \

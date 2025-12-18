@@ -317,12 +317,10 @@ env:
     
 ocr:
   use_ocr: False  # Enable OCRTool to convert trajectory history to images
-  agent_select_compression: False  # Enable agent to select compression factor for OCR images
   use_parallel: True  # Use parallel processing for batch conversion (faster for multiple trajectories)
   max_workers: null  # Number of parallel workers (null for auto-detection: min(32, cpu_count + 4))
   font_size: 8  # Font size for text rendering (null for auto-calculation based on text length)
   padding: 5  # Padding around text in pixels
-  compact_format: True  # Whether to use compact format for trajectory display
   bg_color: [255, 255, 255]  # Background color as RGB tuple
   text_color: [0, 0, 0]  # Text color as RGB tuple
   font_path: null  # Path to custom font file (null for default system font)
@@ -330,7 +328,14 @@ ocr:
   max_width: 336  # Maximum image width in pixels
   min_height: 28  # Minimum image height in pixels
   max_height: 2048  # Maximum image height in pixels
-  # Compression reward manager configs
-  compression_factor_max: 3.0  # upper bound for compression_factor before penalty kicks in
-  compression_reward_coef: 0.01  # base coefficient for compression reward
-  compression_failure_penalty_coef: 0.0  # >0 to enable compression-based penalty on failed trajectories
+  # Compact mode settings (replace newlines with colored symbols)
+  compact_mode:
+    enable: False
+    compact_symbol: "⏎"
+    compact_symbol_color: [255, 0, 0]  # RGB color (teal)
+  # Agent-selected compression settings
+  agent_select_compression:
+    enable: False  # Enable agent to select compression factor for OCR images
+    compression_factor_max: 3.0  # upper bound for compression_factor before penalty kicks in
+    compression_reward_coef: 0.01  # base coefficient for compression reward
+    compression_failure_penalty_coef: 0.0  # >0 to enable compression-based penalty on failed trajectories

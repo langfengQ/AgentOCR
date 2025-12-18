@@ -50,12 +50,29 @@ class EnvironmentManagerBase:
         # Initialize OCRTool if enabled
         use_ocr = getattr(self.ocr_config, 'use_ocr', False)
 
+        # Config keys that should not be passed to OCRTool (handled separately or nested)
+        excluded_keys = [
+            'use_ocr',  # OCRTool uses 'enabled' instead
+            'use_parallel', 'max_workers',  # handled separately
+            'compact_mode',  # nested config, handled separately
+            'agent_select_compression',  # nested config, environment manager specific
+        ]
+
         if use_ocr:
+            # Extract compact_mode settings from nested config
+            compact_config = self.ocr_config.get('compact_mode', {})
+            compact_mode = compact_config.get('enable', False) if compact_config else False
+            compact_symbol = compact_config.get('compact_symbol', '⏎') if compact_config else '⏎'
+            compact_symbol_color = compact_config.get('compact_symbol_color', [255, 0, 0]) if compact_config else [255, 0, 0]
+
             self.ocr_tool = OCRTool(
                 enabled=True,
                 use_parallel=self.ocr_config.get('use_parallel', True),
                 max_workers=self.ocr_config.get('max_workers', None),
-                **{k: v for k, v in self.ocr_config.items() if k not in ['use_parallel', 'max_workers', 'agent_select_compression']}
+                compact_mode=compact_mode,
+                compact_symbol=compact_symbol,
+                compact_symbol_color=tuple(compact_symbol_color),
+                **{k: v for k, v in self.ocr_config.items() if k not in excluded_keys}
             )
         else:
             self.ocr_tool = None

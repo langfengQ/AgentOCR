@@ -135,12 +135,12 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
     def __init__(self, envs, projection_f, config):
         self.memory = SimpleMemory()
         super().__init__(envs, projection_f, config)
-        self.agent_select_compression = getattr(self.ocr_config, 'agent_select_compression', False)
+        self.agent_select_compression_enable = self.ocr_config.agent_select_compression.get('enable', False)
 
         if self.ocr_tool and self.ocr_tool.is_enabled():
             self.template_no_his = ALFWORLD_TEMPLATE_NO_HIS_OCR
             self.template = ALFWORLD_TEMPLATE_OCR
-            if self.agent_select_compression:
+            if self.agent_select_compression_enable:
                 self.template_no_his += ALFWORLD_COMPRESSION_TEMPLATE
                 self.template += ALFWORLD_COMPRESSION_TEMPLATE
         else:
@@ -165,7 +165,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
     
     def step(self, text_actions: List[str]):
         # Extract actions, validity, and compression factors from LLM responses
-        if self.ocr_tool and self.ocr_tool.is_enabled() and self.agent_select_compression:
+        if self.ocr_tool and self.ocr_tool.is_enabled() and self.agent_select_compression_enable:
             actions, valids, compression_factors = self.projection_f(text_actions, self.envs.get_admissible_commands, check_compression_tag=True)
         else:
             actions, valids = self.projection_f(text_actions, self.envs.get_admissible_commands)

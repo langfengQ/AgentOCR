@@ -47,6 +47,8 @@ class EpisodeRewardManager_Compression:
         assert self.compression_reward_coef >= 0.0, "compression_reward_coef must be non-negative"
         assert self.compression_failure_penalty_coef >= 0.0, "compression_failure_penalty_coef must be non-negative"
 
+        print(f"Using EpisodeRewardManager_Compression with compression_factor_max: {self.compression_factor_max}, compression_reward_coef: {self.compression_reward_coef}, compression_failure_penalty_coef: {self.compression_failure_penalty_coef}")
+        
     def __call__(self, data: DataProto, return_dict=False):
         """We will expand this function gradually based on the available datasets"""
 
@@ -97,7 +99,7 @@ class EpisodeRewardManager_Compression:
             compression_factor = data_item.non_tensor_batch['compression_factor']
 
             if is_success:
-                compression_reward = (compression_factor - 1.0) * self.compression_reward_coef if compression_factor <= self.compression_factor_max else -1.0
+                compression_reward = (compression_factor - 1.0) * self.compression_reward_coef if compression_factor <= self.compression_factor_max else np.float32(-1.0)
             else:
                 # Failed trajectories: optional compression-based penalty.
                 compression_reward = -(compression_factor - 1.0) * self.compression_failure_penalty_coef
