@@ -50,37 +50,63 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
     def __init__(self, envs, projection_f, config):
         self.memory = SearchMemory()
         super().__init__(envs, projection_f, config)
+        self.agent_select_compression_enable = self.ocr_config.agent_select_compression.get('enable', False)
+
+        if self.ocr_tool and self.ocr_tool.is_enabled():
+            self.template_no_his = SEARCH_TEMPLATE_NO_HIS_OCR
+            self.template = SEARCH_TEMPLATE_OCR
+            if self.agent_select_compression_enable:
+                self.template_no_his += SEARCH_COMPRESSION_TEMPLATE
+                self.template += SEARCH_COMPRESSION_TEMPLATE
+        else:
+            self.template_no_his = SEARCH_TEMPLATE_NO_HIS
+            self.template = SEARCH_TEMPLATE
 
     def reset(self, kwargs) -> Tuple[Dict[str, Any], List[Dict]]:
         obs, infos = self.envs.reset(kwargs=kwargs)
         self.tasks = obs
 
         self.memory.reset(batch_size=len(obs))
+        
+        if self.ocr_tool and self.ocr_tool.is_enabled():
+            self.ocr_time = 0
+            # Reset OCRTool to clear all caches and statistics
+            self.ocr_tool.reset()
 
+        full_text_obs, trajectory_images = self.build_text_obs(obs, init=True)
         observations = {
-            "text": self.build_text_obs(obs, init=True),
-            "image": None,
+            "text": full_text_obs,
+            "image": trajectory_images,
             "anchor": obs.copy()
         }
         
         return observations, infos
 
     def step(self, text_actions: List[str]):
-        actions, valids = self.projection_f(text_actions)
+        # Extract actions, validity, and compression factors from LLM responses
+        if self.ocr_tool and self.ocr_tool.is_enabled() and self.agent_select_compression_enable:
+            actions, valids, compression_factors = self.projection_f(text_actions, check_compression_tag=True)
+        else:
+            actions, valids = self.projection_f(text_actions)
+            compression_factors = None
+        
         next_obs, rewards, dones, infos = self.envs.step(actions)
         self.memory.store({
             "search": actions,
             "information": next_obs,
         })
 
+        full_text_obs, trajectory_images = self.build_text_obs(next_obs, compression_factors=compression_factors)
         next_observations = {
-            "text": self.build_text_obs(next_obs),
-            "image": None,
+            "text": full_text_obs,
+            "image": trajectory_images,
             "anchor": next_obs.copy()
         }
         
         for i, info in enumerate(infos):
             info["is_action_valid"] = to_numpy(valids[i])
+            if compression_factors is not None:
+                info['compression_factor'] = compression_factors[i]
 
         rewards = to_numpy(rewards)
         dones = to_numpy(dones)
@@ -90,31 +116,72 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
     def build_text_obs(
         self,
         text_obs: List[str],
+        compression_factors: Optional[List[float]] = None,
         init: bool = False
-    ) -> List[str]:
-        postprocess_text_obs: List[str] = []
-
+    ) -> Tuple[List[str], Optional[List]]:
+        """
+        This function builds the text observation for the agent and optionally renders trajectory history as images.
+        
+        Returns:
+            Tuple of (text_observations, trajectory_images):
+            - text_observations: List of processed text observations
+            - trajectory_images: List of PIL Images (or None if OCR is disabled/not available)
+        """
+        postprocess_text_obs = []
+        trajectory_images = None
+        memory_contexts, valid_lens = None, None
+        
+        # Fetch memory contexts if needed (for both OCR and non-OCR cases)
         if not init and self.config.env.history_length > 0:
-            memory_ctx, _ = self.memory.fetch(
+            memory_contexts, valid_lens = self.memory.fetch(
                 self.config.env.history_length,
                 obs_key="information",
                 action_key="search"
             )
+        
+        # If OCRTool is enabled, generate images (blank for init, or from history)
+        if self.ocr_tool and self.ocr_tool.is_enabled():
+            start_time = time.time()
+
+            # Get step count from memory (use first env's memory length as reference)
+            step_info = str(len(self.memory[0])) if len(self.memory) > 0 else "0"
+            
+            # Use compression factors chosen by the LLM (per environment)
+            # Pass individual compression factors as a list for per-image compression
+            if compression_factors is None:
+                # Default to no compression (1.0) for all images
+                compression_factors = [1.0] * len(text_obs)
+            
+            # Use use_precise=False for faster processing (significant speedup)
+            trajectory_images = self.ocr_tool.convert_texts_to_images(
+                memory_contexts, 
+                batch_size=len(text_obs), 
+                compression_factor=compression_factors, 
+                save_img=False, 
+                step_info=step_info,
+                use_precise=False,
+                enable_cache=True,
+                current_steps=[len(self.memory[i]) for i in range(len(text_obs))]
+            )
+            end_time = time.time()
+            self.ocr_time += end_time - start_time
+            print(f"Step {len(self.memory[0])+1}, OCR time: {end_time - start_time}")
 
         for i in range(len(text_obs)):
             if init or self.config.env.history_length <= 0:
-                obs_i = SEARCH_TEMPLATE_NO_HIS.format(
+                obs_i = self.template_no_his.format(
                     task_description=self.tasks[i]
                 )
             else:
-                obs_i = SEARCH_TEMPLATE.format(
+                obs_i = self.template.format(
                     task_description=self.tasks[i],
-                    memory_context=memory_ctx[i],
+                    memory_context=memory_contexts[i],
                     step_count=len(self.memory[i]),
+                    history_length=valid_lens[i] if valid_lens else len(self.memory[i]),
                 )
             postprocess_text_obs.append(obs_i)
 
-        return postprocess_text_obs
+        return postprocess_text_obs, trajectory_images
 
 
     def _process_batch(self, batch_idx, total_batch_list, total_infos, success):

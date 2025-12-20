@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import re
 
 
@@ -31,8 +31,8 @@ def _postprocess_action(action: str) -> str:
     return action
 
 
-def search_projection(actions: List[str]) -> Tuple[List[str], List[int]]:
-    """Project a list of LLM *actions* into (`results`, `valids`).
+def search_projection(actions: List[str], check_compression_tag: bool = False) -> Union[Tuple[List[str], List[int]], Tuple[List[str], List[int], List[float]]]:
+    """Project a list of LLM *actions* into (`results`, `valids`, `compression_factors`).
 
     Extraction logic (order matters):
         1. Grab the **first** complete ``<search>…</search>`` block (case‑insensitive).
@@ -43,13 +43,24 @@ def search_projection(actions: List[str]) -> Tuple[List[str], List[int]]:
     the *original* action text satisfies any of:
         1. Contains **both** ``<search>`` and ``<answer>`` tags.
         2. Contains more than one ``<search>`` tag or more than one ``<answer>`` tag.
+        3. If compression tag checking is enabled and compression tag is missing or invalid.
 
     The extracted block (if any) is **not** cleared when a validity rule fails –
     downstream callers can still inspect the fragment while trusting the flag.
+
+    Args:
+        actions: List of action strings from LLM
+        check_compression_tag: Whether to extract and validate compression factors
+
+    Returns:
+        If check_compression_tag is True: (results, valids, compression_factors)
+        If check_compression_tag is False: (results, valids)
     """
 
     results: List[str] = []
     valids: List[int] = [1] * len(actions)
+    if check_compression_tag:
+        compression_factors: List[float] = [1.0] * len(actions)  # default compression factor
 
     # --- Pre‑compiled patterns ------------------------------------------------
     re_search_block = re.compile(r"<search>(.*?)</search>", re.IGNORECASE | re.DOTALL)
@@ -80,9 +91,38 @@ def search_projection(actions: List[str]) -> Tuple[List[str], List[int]]:
         # Both search and answer present
         if n_search and n_answer:
             valids[i] = 0
-            continue
         # Multiple identical tags
         if n_search > 1 or n_answer > 1:
             valids[i] = 0
 
-    return results, valids
+
+        # Extract compression factor from <compression>...</compression>
+        if check_compression_tag:
+            comp_start_tag = "<compression>"
+            comp_end_tag = "</compression>"
+            comp_start_idx = original_action.lower().find(comp_start_tag)
+            comp_end_idx = original_action.lower().find(comp_end_tag)
+            
+            if comp_start_idx != -1 and comp_end_idx != -1:
+                try:
+                    compression_str = original_action[comp_start_idx + len(comp_start_tag):comp_end_idx].strip()
+                    compression_value = float(compression_str)
+                    # Clamp to >= 1.0 (higher values = more compression)
+                    if compression_value < 1.0:
+                        compression_value = 1.0
+                        valids[i] = 0
+                    elif compression_value > 5.0:
+                        compression_value = 5.0
+                        valids[i] = 0
+                    compression_factors[i] = compression_value
+                except:
+                    # If parsing fails, keep default 1.0
+                    compression_factors[i] = 1.0
+                    valids[i] = 0
+            else:
+                valids[i] = 0
+
+    if check_compression_tag:
+        return results, valids, compression_factors
+    else:
+        return results, valids
