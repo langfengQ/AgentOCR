@@ -1078,6 +1078,7 @@ class OCRTool(BaseOCRTool):
         self,
         trajectory_contexts: Optional[List[str]],
         batch_size: Optional[int] = None,
+        active_masks: Optional[List[bool]] = None,
         save_img: bool = False,
         compression_factor: Optional[List[float]] = None,
         resample_method: int = Image.LANCZOS,
@@ -1091,6 +1092,7 @@ class OCRTool(BaseOCRTool):
         Args:
             trajectory_contexts: List of trajectory text strings (from memory.fetch()), or None/empty for blank images
             batch_size: Number of images to create (required if trajectory_contexts is None/empty)
+            active_masks: List of boolean masks indicating which trajectories are active. If False, renders blank image.
             save_img: Whether to save the generated images to disk
             compression_factor: List of compression factors (one per image, should be >= 1.0). If None, no compression applied.
             resample_method: PIL resampling method for compression (default: Image.LANCZOS for best quality)
@@ -1115,38 +1117,59 @@ class OCRTool(BaseOCRTool):
             if batch_size is None:
                 raise ValueError("batch_size must be provided when trajectory_contexts is None or empty")
             image_arrays = self.create_blank_images(batch_size, **override_kwargs)
-        # Incremental rendering mode
-        elif enable_cache and current_steps is not None and self.enable_cache:
-            # Use compact mode incremental caching if compact mode is enabled
-            compact_mode = override_kwargs.get('compact_mode', self.compact_mode)
-            if compact_mode:
-                image_arrays = self._convert_incremental_compact(
-                    trajectory_contexts, current_steps, **render_kwargs
-                )
-            else:
-                image_arrays = self._convert_incremental(
-                    trajectory_contexts, current_steps, **render_kwargs
-                )
         else:
-            # Convert trajectory texts to images (normal mode)
-            images = self.convert_batch(trajectory_contexts, **render_kwargs)
+            # If active_masks is None, set all to True
+            if active_masks is None:
+                active_masks = [True] * len(trajectory_contexts)
             
-            # Optimize: Pre-create blank array for reuse
+            if len(active_masks) != len(trajectory_contexts):
+                raise ValueError(f"Length of active_masks ({len(active_masks)}) must match length of trajectory_contexts ({len(trajectory_contexts)})")
+            
+            # Pre-create blank array for inactive entries
             width = override_kwargs.get('min_width', self.min_width)
             height = override_kwargs.get('min_height', self.min_height)
             bg_color = override_kwargs.get('bg_color', self.bg_color)
-            blank_array = None
+            blank_img = Image.new('RGB', (width, height), bg_color)
+            blank_array = np.array(blank_img)
             
-            image_arrays = []
-            for img in images:
-                if img is not None:
-                    image_arrays.append(np.array(img))
+            # Separate active and inactive indices
+            active_indices = [i for i, mask in enumerate(active_masks) if mask]
+            inactive_indices = [i for i, mask in enumerate(active_masks) if not mask]
+            
+            # Only process active trajectories
+            if active_indices:
+                active_contexts = [trajectory_contexts[i] for i in active_indices]
+                active_current_steps = [current_steps[i] for i in active_indices] if current_steps is not None else None
+                
+                # Incremental rendering mode for active trajectories
+                if enable_cache and active_current_steps is not None and self.enable_cache:
+                    compact_mode = override_kwargs.get('compact_mode', self.compact_mode)
+                    if compact_mode:
+                        active_image_arrays = self._convert_incremental_compact(
+                            active_contexts, active_current_steps, **render_kwargs
+                        )
+                    else:
+                        active_image_arrays = self._convert_incremental(
+                            active_contexts, active_current_steps, **render_kwargs
+                        )
                 else:
-                    # Reuse blank array to avoid repeated Image.new calls
-                    if blank_array is None:
-                        blank_img = Image.new('RGB', (width, height), bg_color)
-                        blank_array = np.array(blank_img)
-                    image_arrays.append(blank_array.copy())
+                    # Normal rendering mode for active trajectories
+                    active_images = self.convert_batch(active_contexts, **render_kwargs)
+                    active_image_arrays = []
+                    for img in active_images:
+                        if img is not None:
+                            active_image_arrays.append(np.array(img))
+                        else:
+                            active_image_arrays.append(blank_array.copy())
+            else:
+                active_image_arrays = []
+            
+            # Reconstruct full array with blanks for inactive entries
+            image_arrays = [None] * len(trajectory_contexts)
+            for idx, img_array in zip(active_indices, active_image_arrays):
+                image_arrays[idx] = img_array
+            for idx in inactive_indices:
+                image_arrays[idx] = blank_array.copy()
         
         # Apply compression if specified
         if compression_factor is not None:

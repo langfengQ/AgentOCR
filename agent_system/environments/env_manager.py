@@ -67,7 +67,7 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
         self.tasks = obs
 
         self.memory.reset(batch_size=len(obs))
-        self._done_flags = [False] * len(obs)
+        self.active_masks = [True] * len(obs)
 
         if self.ocr_tool and self.ocr_tool.is_enabled():
             self.ocr_time = 0
@@ -91,7 +91,6 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
             actions, valids = self.projection_f(text_actions)
             compression_factors = None
         
-        actions = [actions[i] if not self._done_flags[i] else "Done" for i in range(len(actions))]
         next_obs, rewards, dones, infos = self.envs.step(actions)
         self.memory.store({
             "search": actions,
@@ -100,7 +99,7 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
         
         for i, done in enumerate(dones):
             if done:
-                self._done_flags[i] = True
+                self.active_masks[i] = False
 
         full_text_obs, trajectory_images = self.build_text_obs(next_obs, compression_factors=compression_factors)
         next_observations = {
@@ -161,9 +160,10 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
             # Use use_precise=False for faster processing (significant speedup)
             trajectory_images = self.ocr_tool.convert_texts_to_images(
                 memory_contexts, 
-                batch_size=len(text_obs), 
+                batch_size=len(text_obs),
+                active_masks=self.active_masks,
                 compression_factor=compression_factors, 
-                save_img=True, 
+                save_img=False, 
                 step_info=step_info,
                 use_precise=False,
                 enable_cache=True,
@@ -228,6 +228,9 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         self.tasks = []
         self.pre_text_obs = text_obs
         self.extract_task(text_obs)
+
+        self.active_masks = [True] * len(text_obs)
+        
         if self.ocr_tool and self.ocr_tool.is_enabled():
             self.ocr_time = 0
             # Reset OCRTool to clear all caches and statistics
@@ -247,6 +250,10 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         text_obs, image_obs, rewards, dones, infos = self.envs.step(actions)
         self.memory.store({'text_obs': self.pre_text_obs, 'action': actions})
         self.pre_text_obs = text_obs
+
+        for i, done in enumerate(dones):
+            if done:
+                self.active_masks[i] = False
 
         rewards = to_numpy(rewards) 
 
@@ -308,6 +315,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
             trajectory_images = self.ocr_tool.convert_texts_to_images(
                 memory_contexts, 
                 batch_size=len(text_obs), 
+                active_masks=self.active_masks,
                 compression_factor=compression_factors, 
                 save_img=False, 
                 step_info=step_info,

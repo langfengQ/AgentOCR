@@ -47,7 +47,7 @@ python3 -m verl.trainer.main_ppo \
     data.val_batch_size=$val_data_size \
     data.max_prompt_length=$max_prompt_length \
     data.max_response_length=512 \
-    data.filter_overlong_prompts=True \
+    data.filter_overlong_prompts=False \
     data.truncation='error' \
     data.return_raw_chat=True \
     actor_rollout_ref.model.path=$model \
