@@ -38,5 +38,34 @@ After completing your reasoning, choose only one of the following actions (do no
 (2) If you have enough knowledge to answer the question confidently, provide your final answer within <answer> </answer> tags, without detailed illustrations. For example, <answer>Beijing</answer>.
 """
 
+SEARCH_TEMPLATE_NO_HIS_OCR = """
+You are an expert agent tasked with answering the given question step-by-step.
+Your question: {task_description}
 
+The image below will be used to record all subsequent search queries and results as you progress through the task. Initially it is blank, but it will be updated to visualize your interaction history.
+<image>
+
+Now it's your turn to respond for the current step.
+You should first conduct reasoning process. This process MUST be enclosed within <think> </think> tags. 
+After completing your reasoning, choose only one of the following actions (do not perform both):
+(1) If you find you lack some knowledge, you can call a search engine to get more external information using format: <search> your query </search>.
+(2) If you have enough knowledge to answer the question confidently, provide your final answer within <answer> </answer> tags, without detailed illustrations. For example, <answer>Beijing</answer>.
+"""
+
+SEARCH_TEMPLATE_OCR = """
+You are an expert agent tasked with answering the given question step-by-step.
+Your question: {task_description}
+
+Prior to this step, you have already taken {step_count} step(s). The image below demonstrates the interaction history where <search> </search> wrapped your past search queries and <information> </information> wrapped the corresponding search results returned by the external search engine. History: <image>
+
+Now it's your turn to respond for the current step.
+You should first conduct reasoning process. This process MUST be enclosed within <think> </think> tags. 
+After completing your reasoning, choose only one of the following actions (do not perform both):
+(1) If you find you lack some knowledge, you can call a search engine to get more external information using format: <search> your query </search>.
+(2) If you have enough knowledge to answer the question confidently, provide your final answer within <answer> </answer> tags, without detailed illustrations. For example, <answer>Beijing</answer>.
+"""
+
+SEARCH_COMPRESSION_TEMPLATE = """
+Additionally, select an image compression factor (>= 1.0) for the next trajectory image. Your priority is to ensure task completion first, then maximize compression to reduce costs without affecting task success. Present your choice within <compression> </compression> tags (e.g., <compression>1.2</compression>).
+"""
 

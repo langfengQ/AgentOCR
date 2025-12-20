@@ -176,7 +176,7 @@ class SearchMemory(BaseMemory):
                 act = rec[action_key]
                 obs = rec[obs_key]
                 lines.append(
-                    f"Step {step_num}:{act} {obs}\n"
+                    f"Step {step_num}:{act.replace('\n', ' ')} {obs.replace('\n', ' ')}\n"
                 )
 
             memory_contexts.append("\n".join(lines))

@@ -319,7 +319,7 @@ ocr:
   use_ocr: False  # Enable OCRTool to convert trajectory history to images
   use_parallel: True  # Use parallel processing for batch conversion (faster for multiple trajectories)
   max_workers: null  # Number of parallel workers (null for auto-detection: min(32, cpu_count + 4))
-  font_size: 8  # Font size for text rendering (null for auto-calculation based on text length)
+  font_size: 10  # Font size for text rendering (null for auto-calculation based on text length)
   padding: 5  # Padding around text in pixels
   bg_color: [255, 255, 255]  # Background color as RGB tuple
   text_color: [0, 0, 0]  # Text color as RGB tuple
@@ -327,7 +327,7 @@ ocr:
   min_width: 28  # Minimum image width in pixels
   max_width: 336  # Maximum image width in pixels
   min_height: 28  # Minimum image height in pixels
-  max_height: 2048  # Maximum image height in pixels
+  max_height: 4096  # Maximum image height in pixels
   # Compact mode settings (replace newlines with colored symbols)
   compact_mode:
     enable: False
