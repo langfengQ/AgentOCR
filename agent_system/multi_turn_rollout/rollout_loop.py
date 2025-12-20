@@ -25,6 +25,7 @@ from agent_system.multi_turn_rollout.utils import process_image, to_list_of_dict
 from agent_system.environments import EnvironmentManagerBase
 from typing import List, Dict
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
+from verl.protocol import extract_dataproto_via_active_mask, restore_dataproto_via_active_mask
 import time
 
 class TrajectoryCollector:
@@ -355,14 +356,18 @@ class TrajectoryCollector:
 
             batch_input.meta_info = gen_batch.meta_info
 
+            # extract activate data
+            batch_input_extracted = extract_dataproto_via_active_mask(batch_input, active_masks)
             # pad to be divisible by dp_size
-            batch_input_padded, pad_size = pad_dataproto_to_divisor(batch_input, actor_rollout_wg.world_size)
+            batch_input_padded, pad_size = pad_dataproto_to_divisor(batch_input_extracted, actor_rollout_wg.world_size)
             start_time = time.time()
             batch_output_padded = actor_rollout_wg.generate_sequences(batch_input_padded)
             end_time = time.time()
             self.llm_forward_time += end_time - start_time
-            # # unpad
-            batch_output = unpad_dataproto(batch_output_padded, pad_size=pad_size)
+            # unpad
+            batch_output_extracted = unpad_dataproto(batch_output_padded, pad_size=pad_size)
+            # restorr
+            batch_output = restore_dataproto_via_active_mask(batch_output_extracted, active_masks)
 
             batch.non_tensor_batch['uid'] = uid_batch
             batch.non_tensor_batch['traj_uid'] = traj_uid

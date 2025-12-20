@@ -67,7 +67,8 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
         self.tasks = obs
 
         self.memory.reset(batch_size=len(obs))
-        
+        self._done_flags = [False] * len(obs)
+
         if self.ocr_tool and self.ocr_tool.is_enabled():
             self.ocr_time = 0
             # Reset OCRTool to clear all caches and statistics
@@ -90,11 +91,16 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
             actions, valids = self.projection_f(text_actions)
             compression_factors = None
         
+        actions = [actions[i] if not self._done_flags[i] else "Done" for i in range(len(actions))]
         next_obs, rewards, dones, infos = self.envs.step(actions)
         self.memory.store({
             "search": actions,
             "information": next_obs,
         })
+        
+        for i, done in enumerate(dones):
+            if done:
+                self._done_flags[i] = True
 
         full_text_obs, trajectory_images = self.build_text_obs(next_obs, compression_factors=compression_factors)
         next_observations = {
@@ -157,7 +163,7 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
                 memory_contexts, 
                 batch_size=len(text_obs), 
                 compression_factor=compression_factors, 
-                save_img=False, 
+                save_img=True, 
                 step_info=step_info,
                 use_precise=False,
                 enable_cache=True,
