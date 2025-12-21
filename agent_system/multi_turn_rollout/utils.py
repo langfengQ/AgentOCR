@@ -58,7 +58,7 @@ def numpy_to_torch(array, device):
     return array
 
 
-def process_image(image, max_pixels: int = 2048 * 2048, min_pixels: int = 28 * 28):
+def process_image(image, max_pixels: int = 1024 * 1024, min_pixels: int = 28 * 28):
     if isinstance(image, torch.Tensor):
         image = torch_to_numpy(image)
     if image.max() < 1:

@@ -1,5 +1,5 @@
 set -x
-ENGINE=${1:-vllm}
+
 export CUDA_VISIBLE_DEVICES=2,3
 
 use_ocr=True
@@ -35,7 +35,7 @@ else
     max_prompt_length=5120
 fi
 
-experiment_name="grpo_ocr${use_ocr}_compact${compact_mode_enable}_agentcompress${agent_select_compression_enable}_maxprompt${max_prompt_length}_rewardcoef${compression_reward_coef}_failurepenalty${compression_failure_penalty_coef}_fontsize${ocr_font_size}_maxwidth${ocr_max_width}_maxheight${ocr_max_height}"
+experiment_name="ocr${use_ocr}_compact${compact_mode_enable}_agentcompress${agent_select_compression_enable}_maxprompt${max_prompt_length}_rewardcoef${compression_reward_coef}_failurepenalty${compression_failure_penalty_coef}_fontsize${ocr_font_size}_maxwidth${ocr_max_width}_maxheight${ocr_max_height}"
 
 # We only use data preparation to indicate the modality and the data size.
 python3 -m examples.data_preprocess.prepare \
@@ -52,7 +52,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=$max_prompt_length \
     data.max_response_length=512 \
     data.filter_overlong_prompts=False \
-    data.truncation='middle' \
+    data.truncation='error' \
     data.return_raw_chat=True \
     actor_rollout_ref.model.path=$model \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -65,7 +65,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
-    actor_rollout_ref.rollout.name=$ENGINE \
+    actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
