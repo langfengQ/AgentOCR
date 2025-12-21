@@ -15,6 +15,7 @@
 
 from typing import List, Tuple
 import re
+import math
 
 def alfworld_projection(actions: List[str], action_pools: List[List[str]], check_compression_tag: bool = False) -> Tuple[List[str], List[int], List[float]]:
     """
@@ -68,7 +69,10 @@ def alfworld_projection(actions: List[str], action_pools: List[List[str]], check
                     compression_str = original_str[comp_start_idx + len(comp_start_tag):comp_end_idx].strip()
                     compression_value = float(compression_str)
                     # Clamp to >= 1.0 (higher values = more compression)
-                    if compression_value < 1.0:
+                    if math.isnan(compression_value) or not math.isfinite(compression_value):
+                        compression_value = 1.0
+                        valids[i] = 0
+                    elif compression_value < 1.0:
                         compression_value = 1.0
                         valids[i] = 0
                     elif compression_value > 5.0:

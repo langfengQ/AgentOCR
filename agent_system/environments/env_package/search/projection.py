@@ -15,7 +15,7 @@
 
 from typing import List, Tuple, Union
 import re
-
+import math
 
 def _postprocess_action(action: str) -> str:
     """Trim everything *after* the first closing `</search>` or `</answer>` tag.
@@ -108,7 +108,10 @@ def search_projection(actions: List[str], check_compression_tag: bool = False) -
                     compression_str = original_action[comp_start_idx + len(comp_start_tag):comp_end_idx].strip()
                     compression_value = float(compression_str)
                     # Clamp to >= 1.0 (higher values = more compression)
-                    if compression_value < 1.0:
+                    if math.isnan(compression_value) or not math.isfinite(compression_value):
+                        compression_value = 1.0
+                        valids[i] = 0
+                    elif compression_value < 1.0:
                         compression_value = 1.0
                         valids[i] = 0
                     elif compression_value > 5.0:
