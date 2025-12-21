@@ -527,6 +527,7 @@ class OCRTool(BaseOCRTool):
         self,
         trajectory_contexts: List[str],
         current_steps: List[int],
+        env_indices: List[int],
         **override_kwargs
     ) -> List[np.ndarray]:
         """
@@ -541,6 +542,7 @@ class OCRTool(BaseOCRTool):
         Args:
             trajectory_contexts: List of trajectory text strings
             current_steps: List of current step numbers for each environment
+            env_indices: List of real environment indices (for active_masks support)
             **override_kwargs: Override configuration parameters
         
         Returns:
@@ -552,7 +554,7 @@ class OCRTool(BaseOCRTool):
         max_height = override_kwargs.get('max_height', self.max_height)
         image_arrays = []
         
-        for env_idx, (context, current_step) in enumerate(zip(trajectory_contexts, current_steps)):
+        for real_env_idx, context, current_step in zip(env_indices, trajectory_contexts, current_steps):
             self._cache_stats['total'] += 1
             
             context = context.strip() if context else ""
@@ -563,10 +565,10 @@ class OCRTool(BaseOCRTool):
                 continue
             
             # Initialize master image for this environment if needed
-            if env_idx not in self._master_images:
-                self._master_images[env_idx] = {'master_img': None, 'indices': {}, 'segments': []}
+            if real_env_idx not in self._master_images:
+                self._master_images[real_env_idx] = {'master_img': None, 'indices': {}, 'segments': []}
             
-            master_data = self._master_images[env_idx]
+            master_data = self._master_images[real_env_idx]
             context_hash = hash(context)
             
             # Check if we have this exact context cached (for backward compatibility)
@@ -579,7 +581,7 @@ class OCRTool(BaseOCRTool):
                 continue
             
             # Try to find matching segments for incremental rendering
-            segment_match = self._find_matching_segments(context, env_idx)
+            segment_match = self._find_matching_segments(context, real_env_idx)
             
             if segment_match is not None:
                 # Cache hit on segments!
@@ -606,8 +608,7 @@ class OCRTool(BaseOCRTool):
                     step_end = current_step
                     
                     # Use _update_master_image to append new content with per-line ranges
-                    self._update_master_image(env_idx, new_content, hash(new_content), new_array, new_ranges,
-                                              step_start, step_end, **override_kwargs)
+                    self._update_master_image(real_env_idx, new_content, hash(new_content), new_array, new_ranges, step_start, step_end, **override_kwargs)
                     
                     # Combine matched segments with new content
                     combined_parts = []
@@ -648,8 +649,8 @@ class OCRTool(BaseOCRTool):
                 step_end = current_step
                 
                 # Update master image and indices
-                self._update_master_image(env_idx, context, context_hash, img_array, line_ranges,
-                                         step_start, step_end, **override_kwargs)
+                self._update_master_image(real_env_idx, context, context_hash, img_array, line_ranges,
+                                        step_start, step_end, **override_kwargs)
                 
                 image_arrays.append(img_array.copy())
             
@@ -663,6 +664,7 @@ class OCRTool(BaseOCRTool):
         self,
         trajectory_contexts: List[str],
         current_steps: List[int],
+        env_indices: List[int],
         **override_kwargs
     ) -> List[np.ndarray]:
         """
@@ -683,6 +685,7 @@ class OCRTool(BaseOCRTool):
         Args:
             trajectory_contexts: List of trajectory text strings
             current_steps: List of current step numbers for each environment
+            env_indices: List of real environment indices (for active_masks support)
             **override_kwargs: Override configuration parameters
         
         Returns:
@@ -694,7 +697,7 @@ class OCRTool(BaseOCRTool):
         config = self._get_config(**override_kwargs)
         image_arrays = []
         
-        for env_idx, (context, current_step) in enumerate(zip(trajectory_contexts, current_steps)):
+        for real_env_idx, context, current_step in zip(env_indices, trajectory_contexts, current_steps):
             self._cache_stats['total'] += 1
             self._compact_cache_stats['total'] += 1
             
@@ -706,8 +709,8 @@ class OCRTool(BaseOCRTool):
                 continue
             
             # Initialize compact cache for this environment if needed
-            if env_idx not in self._compact_cache:
-                self._compact_cache[env_idx] = {
+            if real_env_idx not in self._compact_cache:
+                self._compact_cache[real_env_idx] = {
                     'complete_lines_img': None,
                     'complete_lines_count': 0,
                     'last_full_compact_text': '',  # Full compact text from last render
@@ -715,7 +718,7 @@ class OCRTool(BaseOCRTool):
                     'last_context_hash': None
                 }
             
-            cache_data = self._compact_cache[env_idx]
+            cache_data = self._compact_cache[real_env_idx]
             context_hash = hash(context)
             
             # Apply compact mode transformation to get the full compact text
@@ -727,7 +730,7 @@ class OCRTool(BaseOCRTool):
                 self._compact_cache_stats['full_hits'] += 1
                 self._compact_cache_stats['cached_lines_reused'] += cache_data['complete_lines_count']
                 # Reconstruct from cached complete lines + incomplete portion
-                result = self._render_compact_with_cache(env_idx, context, config)
+                result = self._render_compact_with_cache(real_env_idx, context, config)
                 image_arrays.append(result)
                 continue
             
@@ -803,7 +806,7 @@ class OCRTool(BaseOCRTool):
                     # No new content, just use cached (shouldn't happen often)
                     cache_data['last_full_compact_text'] = compact_text
                     cache_data['last_context_hash'] = context_hash
-                    result = self._render_compact_with_cache(env_idx, context, config)
+                    result = self._render_compact_with_cache(real_env_idx, context, config)
                     image_arrays.append(result)
             else:
                 # Cache miss or context doesn't extend cached content - full re-render
@@ -1146,11 +1149,17 @@ class OCRTool(BaseOCRTool):
                     compact_mode = override_kwargs.get('compact_mode', self.compact_mode)
                     if compact_mode:
                         active_image_arrays = self._convert_incremental_compact(
-                            active_contexts, active_current_steps, **render_kwargs
+                            active_contexts, 
+                            active_current_steps, 
+                            env_indices=active_indices,
+                            **render_kwargs
                         )
                     else:
                         active_image_arrays = self._convert_incremental(
-                            active_contexts, active_current_steps, **render_kwargs
+                            active_contexts, 
+                            active_current_steps,
+                            env_indices=active_indices,
+                            **render_kwargs
                         )
                 else:
                     # Normal rendering mode for active trajectories
