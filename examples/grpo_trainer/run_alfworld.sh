@@ -6,8 +6,8 @@ use_ocr=True
 ocr_use_parallel=True
 ocr_max_workers=64
 
-ocr_font_size=12
-ocr_max_width=448
+ocr_font_size=10
+ocr_max_width=336
 ocr_max_height=4096
 
 # Compact mode settings (replace newlines with colored symbols)
@@ -64,7 +64,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=32 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
