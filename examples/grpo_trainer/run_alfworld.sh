@@ -1,17 +1,21 @@
 set -x
 ENGINE=${1:-vllm}
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=2,3
 
 use_ocr=True
 ocr_use_parallel=True
 ocr_max_workers=64
+
+ocr_font_size=12
+ocr_max_width=448
+ocr_max_height=4096
 
 # Compact mode settings (replace newlines with colored symbols)
 compact_mode_enable=False
 
 # Agent-selected compression settings
 agent_select_compression_enable=True
-compression_reward_coef=0.01  # base coefficient for compression reward
+compression_reward_coef=0.001  # base coefficient for compression reward
 compression_failure_penalty_coef=0.0  # >0 to enable compression-based penalty on failed trajectories
 
 num_cpus_per_env_worker=0.1 # The CPU resource allocated for each environment worker. If you want to use less CPU resources, you can decrease this value.
@@ -31,7 +35,7 @@ else
     max_prompt_length=5120
 fi
 
-experiment_name="grpo_useocr${use_ocr}_compact${compact_mode_enable}_agentcompress${agent_select_compression_enable}_rewardcoef${compression_reward_coef}_failurepenalty${compression_failure_penalty_coef}"
+experiment_name="grpo_ocr${use_ocr}_compact${compact_mode_enable}_agentcompress${agent_select_compression_enable}_maxprompt${max_prompt_length}_rewardcoef${compression_reward_coef}_failurepenalty${compression_failure_penalty_coef}_fontsize${ocr_font_size}_maxwidth${ocr_max_width}_maxheight${ocr_max_height}"
 
 # We only use data preparation to indicate the modality and the data size.
 python3 -m examples.data_preprocess.prepare \
@@ -48,7 +52,7 @@ python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=$max_prompt_length \
     data.max_response_length=512 \
     data.filter_overlong_prompts=False \
-    data.truncation='error' \
+    data.truncation='middle' \
     data.return_raw_chat=True \
     actor_rollout_ref.model.path=$model \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -80,17 +84,20 @@ python3 -m verl.trainer.main_ppo \
     ocr.use_ocr=$use_ocr \
     ocr.use_parallel=$ocr_use_parallel \
     ocr.max_workers=$ocr_max_workers \
+    ocr.font_size=$ocr_font_size \
+    ocr.max_width=$ocr_max_width \
+    ocr.max_height=$ocr_max_height \
     ocr.compact_mode.enable=$compact_mode_enable \
     ocr.agent_select_compression.enable=$agent_select_compression_enable \
     ocr.agent_select_compression.compression_reward_coef=$compression_reward_coef \
     ocr.agent_select_compression.compression_failure_penalty_coef=$compression_failure_penalty_coef \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='AgentOCR' \
+    trainer.project_name='AgentOCR_alfworld' \
     trainer.experiment_name=$experiment_name \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
-    trainer.total_epochs=150 \
+    trainer.total_epochs=200 \
     trainer.val_before_train=True $@

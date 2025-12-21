@@ -62,6 +62,10 @@ You should first reason step-by-step about the current situation. This reasoning
 Once you've finished your reasoning, you should choose an admissible action for current step and present it within <action> </action> tags.
 """
 
+ALFWORLD_COMPRESSION_TEMPLATE_NO_HIS = """
+Additionally, you need to select an image compression factor (>= 1.00) for the next history image. Higher compression reduces cost, but over-compression degrades image quality and can lower task success rates. Therefore, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.08</compression>).
+"""
+
 ALFWORLD_COMPRESSION_TEMPLATE = """
-Additionally, select an image compression factor (>= 1.0) for the next trajectory image. Your priority is to ensure task completion first, then maximize compression to reduce costs without affecting task success. Present your choice within <compression> </compression> tags (e.g., <compression>1.2</compression>).
+Additionally, you need to select an image compression factor (>= 1.00) for the next history image (note: the above provideded image uses a compression factor of {compression_factor}). Higher compression reduces cost, but over-compression degrades image quality and can lower task success rates. Therefore, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.08</compression>).
 """

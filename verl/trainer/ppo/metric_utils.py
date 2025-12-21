@@ -190,6 +190,30 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
     # compression factor
     if 'compression_factor' in batch.non_tensor_batch:
         metrics['compression_factor/mean'] = batch.non_tensor_batch["compression_factor"].mean().item()
+    
+    # ocr image dimensions (height, width, size)
+    if 'image_size' in batch.non_tensor_batch:
+        image_sizes = batch.non_tensor_batch["image_size"]
+        image_heights = batch.non_tensor_batch["image_height"]
+        image_widths = batch.non_tensor_batch["image_width"]
+        # Filter out zero values (non-multimodal samples)
+        valid_mask = image_sizes > 0
+        if valid_mask.sum() > 0:
+            valid_sizes = image_sizes[valid_mask]
+            valid_heights = image_heights[valid_mask]
+            valid_widths = image_widths[valid_mask]
+            # size metrics
+            metrics['ocr/image_size/mean'] = valid_sizes.mean().item()
+            metrics['ocr/image_size/max'] = valid_sizes.max().item()
+            metrics['ocr/image_size/min'] = valid_sizes.min().item()
+            # height metrics
+            metrics['ocr/image_height/mean'] = valid_heights.mean().item()
+            metrics['ocr/image_height/max'] = valid_heights.max().item()
+            metrics['ocr/image_height/min'] = valid_heights.min().item()
+            # width metrics
+            metrics['ocr/image_width/mean'] = valid_widths.mean().item()
+            metrics['ocr/image_width/max'] = valid_widths.max().item()
+            metrics['ocr/image_width/min'] = valid_widths.min().item()
     return metrics
 
 

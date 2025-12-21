@@ -104,9 +104,18 @@ class TrajectoryCollector:
         
         # Initialize return dict
         row_dict = {}
+        image_dict = {}
         
         # Process multimodal data
         if is_multi_modal:
+            image_height = np.float32(obs_image.shape[0])
+            image_width = np.float32(obs_image.shape[1])
+            image_size = np.float32(image_height * image_width)
+            image_dict = {
+                'image_height': image_height,
+                'image_width': image_width,
+                'image_size': image_size,
+            }
             # Replace image placeholder with vision tokens
             raw_prompt = prompt_with_chat_template.replace('<image>', '<|vision_start|><|image_pad|><|vision_end|>')
             row_dict['multi_modal_data'] = {'image': [process_image(obs_image)]}
@@ -181,7 +190,8 @@ class TrajectoryCollector:
             'raw_prompt_ids': raw_prompt_ids,
             'anchor_obs': _obs_anchor,
             'index': item,
-            'data_source': data_source
+            'data_source': data_source,
+            **image_dict,
         })
 
         if self.config.data.get('return_raw_chat', False):

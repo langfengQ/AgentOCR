@@ -65,7 +65,10 @@ After completing your reasoning, choose only one of the following actions (do no
 (2) If you have enough knowledge to answer the question confidently, provide your final answer within <answer> </answer> tags, without detailed illustrations. For example, <answer>Beijing</answer>.
 """
 
-SEARCH_COMPRESSION_TEMPLATE = """
-Additionally, select an image compression factor (>= 1.0) for the next trajectory image. Your priority is to ensure task completion first, then maximize compression to reduce costs without affecting task success. Present your choice within <compression> </compression> tags (e.g., <compression>1.2</compression>).
+SEARCH_COMPRESSION_TEMPLATE_NO_HIS = """
+Additionally, you need to select an image compression factor (>= 1.00) for the next history image. Higher compression reduces cost, but over-compression degrades image quality and can lower task success rates. Therefore, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.08</compression>).
 """
 
+SEARCH_COMPRESSION_TEMPLATE = """
+Additionally, you need to select an image compression factor (>= 1.00) for the next history image (note: the above provideded image uses a compression factor of {compression_factor}). Higher compression reduces cost, but over-compression degrades image quality and can lower task success rates. Therefore, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.08</compression>).
+"""

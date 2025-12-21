@@ -56,7 +56,7 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
             self.template_no_his = SEARCH_TEMPLATE_NO_HIS_OCR
             self.template = SEARCH_TEMPLATE_OCR
             if self.agent_select_compression_enable:
-                self.template_no_his += SEARCH_COMPRESSION_TEMPLATE
+                self.template_no_his += SEARCH_COMPRESSION_TEMPLATE_NO_HIS
                 self.template += SEARCH_COMPRESSION_TEMPLATE
         else:
             self.template_no_his = SEARCH_TEMPLATE_NO_HIS
@@ -184,6 +184,7 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
                     memory_context=memory_contexts[i],
                     step_count=len(self.memory[i]),
                     history_length=valid_lens[i] if valid_lens else len(self.memory[i]),
+                    compression_factor=compression_factors[i] if compression_factors is not None else 1.0,
                 )
             postprocess_text_obs.append(obs_i)
 
@@ -214,7 +215,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
             self.template_no_his = ALFWORLD_TEMPLATE_NO_HIS_OCR
             self.template = ALFWORLD_TEMPLATE_OCR
             if self.agent_select_compression_enable:
-                self.template_no_his += ALFWORLD_COMPRESSION_TEMPLATE
+                self.template_no_his += ALFWORLD_COMPRESSION_TEMPLATE_NO_HIS
                 self.template += ALFWORLD_COMPRESSION_TEMPLATE
         else:
             self.template_no_his = ALFWORLD_TEMPLATE_NO_HIS
@@ -350,7 +351,8 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
                     action_history=memory_contexts[i],
                     current_step=len(self.memory[i]) + 1,
                     current_observation=text_obs[i],
-                    admissible_actions=reformatted_admissible_actions
+                    admissible_actions=reformatted_admissible_actions,
+                    compression_factor=compression_factors[i] if compression_factors is not None else 1.0,
                 )
 
             postprocess_text_obs.append(obs)
