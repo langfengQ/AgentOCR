@@ -58,10 +58,10 @@ You should first reason step-by-step about the current situation. This reasoning
 Once you've finished your reasoning, you should choose an admissible action for current step and present it within <action> </action> tags.
 """
 
-SEARCH_COMPRESSION_TEMPLATE_NO_HIS = """
+ALFWORLD_COMPRESSION_TEMPLATE_NO_HIS = """
 Additionally, you need to select an image compression factor (>1.0) for the next image. Higher compression reduces cost, but over-compression degrades image quality and obscures the interaction history. Thus, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.2</compression>).
 """
 
-SEARCH_COMPRESSION_TEMPLATE = """
+ALFWORLD_COMPRESSION_TEMPLATE = """
 Additionally, you need to select an image compression factor (>1.0) for the next image (note: the provided image uses a compression factor of {compression_factor}). Higher compression reduces cost, but over-compression degrades image quality and obscures the interaction history. Thus, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.2</compression>).
 """
