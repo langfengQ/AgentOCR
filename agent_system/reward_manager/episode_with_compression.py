@@ -104,10 +104,10 @@ class EpisodeRewardManager_Compression:
                 # Failed trajectories: optional compression-based penalty.
                 compression_reward = -(compression_factor - 1.0) * self.compression_failure_penalty_coef
 
-            if is_success and episode_rewards <= 0:
-                print("Miss Match C1")
-            if not is_success and episode_rewards > 0:
-                print("Miss Match C2")
+            # if is_success and episode_rewards <= 0:
+            #     print("Miss Match C1")
+            # if not is_success and episode_rewards > 0:
+            #     print("Miss Match C2")
 
             if self.normalize_by_length:
                 score = (episode_rewards + compression_reward) / episode_lengths

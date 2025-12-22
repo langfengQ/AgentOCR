@@ -25,7 +25,7 @@ class SearchEnv(BaseTextEnv):
             log_requests=env_config.log_requests,
         )
         self.init_tool_groups([self.tool_group])
-        
+        self.search_reward_coef = env_config.search_reward_coef
     def reset(self, extras: Dict[str, Any] = {}) -> None:
         assert "ground_truth" in extras, "ground_truth is required in extras field"
         self.ground_truth = extras["ground_truth"]
@@ -96,6 +96,9 @@ class SearchEnv(BaseTextEnv):
 
         try:
             query = self._parse_action(action)
+            # if successfully parse <search>...</search>, add some reward for the query
+            if query[0]:
+                reward += self.search_reward_coef
             observation = self._execute_tool("SearchToolGroup", "search", query)
         except Exception as e:
             error = str(e)

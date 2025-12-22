@@ -18,7 +18,7 @@ You are an expert agent tasked with answering the given question step-by-step.
 Your question: {task_description}
 
 Now it's your turn to respond for the current step.
-You should first conduct reasoning process about the question and the information in the image. This process MUST be enclosed within <think> </think> tags. 
+You should first conduct reasoning process about the question and the information in the image.
 After completing your reasoning, choose only one of the following actions (do not perform both):
 (1) If you lack some knowledge (including any uncertainty, missing detail, or need to verify facts), you can call a search engine to get more external information using format: <search> your query </search>.
 (2) If you have enough information to answer the question confidently, provide your final answer within <answer> </answer> tags. For example, <answer>Beijing</answer>.
@@ -32,7 +32,7 @@ Prior to this step, you have already taken {step_count} step(s). Below is the in
 {memory_context}
 
 Now it's your turn to respond for the current step.
-You should first conduct reasoning process about the question and the information in the image. This process MUST be enclosed within <think> </think> tags. 
+You should first conduct reasoning process about the question and the information in the image.
 After completing your reasoning, choose only one of the following actions (do not perform both):
 (1) If you lack some knowledge (including any uncertainty, missing detail, or need to verify facts), you can call a search engine to get more external information using format: <search> your query </search>.
 (2) If you have enough information to answer the question confidently, provide your final answer within <answer> </answer> tags. For example, <answer>Beijing</answer>.
@@ -46,7 +46,7 @@ The image below will be used to record all subsequent search queries and results
 <image>
 
 Now it's your turn to respond for the current step.
-You should first conduct reasoning process about the question and the information in the image. This process MUST be enclosed within <think> </think> tags. 
+You should first conduct reasoning process about the question and the information in the image.
 After completing your reasoning, choose only one of the following actions (do not perform both):
 (1) If you lack some knowledge (including any uncertainty, missing detail, or need to verify facts), you can call a search engine to get more external information using format: <search> your query </search>.
 (2) If you have enough information to answer the question confidently, provide your final answer within <answer> </answer> tags. For example, <answer>Beijing</answer>.
@@ -59,16 +59,16 @@ Your question: {task_description}
 Prior to this step, you have already taken {step_count} step(s). The image below demonstrates the interaction history where <search> </search> wrapped your past search queries and <information> </information> wrapped the corresponding search results returned by the external search engine. History: <image>
 
 Now it's your turn to respond for the current step.
-You should first conduct reasoning process about the question and the information in the image. This process MUST be enclosed within <think> </think> tags. 
+You should first conduct reasoning process about the question and the information in the image.
 After completing your reasoning, choose only one of the following actions (do not perform both):
 (1) If you lack some knowledge (including any uncertainty, missing detail, or need to verify facts), you can call a search engine to get more external information using format: <search> your query </search>.
 (2) If you have enough information to answer the question confidently, provide your final answer within <answer> </answer> tags. For example, <answer>Beijing</answer>.
 """
 
 SEARCH_COMPRESSION_TEMPLATE_NO_HIS = """
-Additionally, you need to select an image compression factor (>= 1.00) for the next history image. Higher compression reduces cost, but over-compression degrades image quality and can lower task success rates. Therefore, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.08</compression>).
+Additionally, you need to select an image compression factor (> 1.0) for the next history image. Higher compression reduces cost, but over-compression degrades image quality and can lower task success rates. Therefore, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.1</compression>).
 """
 
 SEARCH_COMPRESSION_TEMPLATE = """
-Additionally, you need to select an image compression factor (>= 1.00) for the next history image (note: the above provideded image uses a compression factor of {compression_factor}). Higher compression reduces cost, but over-compression degrades image quality and can lower task success rates. Therefore, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.08</compression>).
+Additionally, you need to select an image compression factor (> 1.0) for the next history image (note: the above provideded image uses a compression factor of {compression_factor}). Higher compression reduces cost, but over-compression degrades image quality and can lower task success rates. Therefore, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.1</compression>).
 """

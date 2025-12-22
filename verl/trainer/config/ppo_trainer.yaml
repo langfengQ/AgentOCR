@@ -305,6 +305,7 @@ env:
     log_requests: false
     search_url: "http://127.0.0.1:8000/retrieve" # also support multiple urls: ["http://127.0.0.1:8000/retrieve", "http://127.0.0.1:8001/retrieve"]
     topk: 3
+    search_reward_coef: 0.0
     timeout: 60
   sokoban:
     dim_room: [6, 6]

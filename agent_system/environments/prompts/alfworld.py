@@ -63,9 +63,9 @@ Once you've finished your reasoning, you should choose an admissible action for 
 """
 
 ALFWORLD_COMPRESSION_TEMPLATE_NO_HIS = """
-Additionally, you need to select an image compression factor (>= 1.00) for the next history image. Higher compression reduces cost, but over-compression degrades image quality and can lower task success rates. Therefore, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.08</compression>).
+Additionally, you need to select an image compression factor (> 1.0) for the next history image. Higher compression reduces cost, but over-compression degrades image quality and can lower task success rates. Therefore, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.1</compression>).
 """
 
 ALFWORLD_COMPRESSION_TEMPLATE = """
-Additionally, you need to select an image compression factor (>= 1.00) for the next history image (note: the above provideded image uses a compression factor of {compression_factor}). Higher compression reduces cost, but over-compression degrades image quality and can lower task success rates. Therefore, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.08</compression>).
+Additionally, you need to select an image compression factor (> 1.0) for the next history image (note: the above provideded image uses a compression factor of {compression_factor}). Higher compression reduces cost, but over-compression degrades image quality and can lower task success rates. Therefore, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.1</compression>).
 """
