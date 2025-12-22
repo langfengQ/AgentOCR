@@ -1,12 +1,17 @@
 set -x
-export CUDA_VISIBLE_DEVICES=2,3
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+# Highlight configs: use environment variable to avoid Hydra parsing issues with < > characters
+# Format: "context1:r,g,b;context2:r,g,b"
+# <search> and </search> are highlighted in blue (0,0,255)
+# <information> and </information> are highlighted in red (255,0,0)
+# export HIGHLIGHT_CONFIGS='<search>:0,0,255;</search>:0,0,255;<information>:255,0,0;</information>:255,0,0'
 
 use_ocr=True
 ocr_use_parallel=True
 ocr_max_workers=64
 
-ocr_font_size=16
-ocr_max_width=560
+ocr_font_size=14
+ocr_max_width=672
 ocr_max_height=4096
 
 # Compact mode settings (replace newlines with colored symbols)
@@ -14,28 +19,28 @@ compact_mode_enable=False
 
 # Agent-selected compression settings
 agent_select_compression_enable=True
-compression_reward_coef=0.001  # base coefficient for compression reward
-compression_failure_penalty_coef=0.0  # >0 to enable compression-based penalty on failed trajectories
+compression_reward_coef=0.01  # base coefficient for compression reward
+compression_failure_penalty_coef=0.001  # >0 to enable compression-based penalty on failed trajectories
 
 train_data_size=128
 val_data_size=512
 group_size=5
-
 # Set mode based on use_ocr: visual if use_ocr=True, text otherwise
 if [ "$use_ocr" = "True" ]; then
     mode="visual"
-    model=Qwen/Qwen3-VL-4B-Instruct # Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen3-VL-2B-Instruct
-    max_prompt_length=3072
+    model=Qwen/Qwen3-VL-8B-Instruct # Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen3-VL-4B-Instruct
+    max_prompt_length=5120
 else
     mode="text"
-    model=Qwen/Qwen3-4B
-    max_prompt_length=7168
+    model=Qwen/Qwen3-8B
+    max_prompt_length=12288
 fi
 
 TRAIN_DATA="$HOME/data/searchR1_processed_direct/train.parquet"
 VAL_DATA="$HOME/data/searchR1_processed_direct/test.parquet"
 
-experiment_name="ocr${use_ocr}_compact${compact_mode_enable}_agentcompress${agent_select_compression_enable}_maxprompt${max_prompt_length}_rewardcoef${compression_reward_coef}_failurepenalty${compression_failure_penalty_coef}_fontsize${ocr_font_size}_maxwidth${ocr_max_width}_maxheight${ocr_max_height}_qwen3_4b"
+experiment_name="ocr${use_ocr}_compact${compact_mode_enable}_selfcompress${agent_select_compression_enable}_maxprompt${max_prompt_length}_poscoef${compression_reward_coef}_negcoef${compression_failure_penalty_coef}_fs${ocr_font_size}_maxwidth${ocr_max_width}_maxheight${ocr_max_height}_qwen3_8b"
+
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
@@ -74,6 +79,7 @@ python3 -m verl.trainer.main_ppo \
     env.rollout.n=$group_size \
     env.history_length=4 \
     env.search.search_url='http://127.0.0.1:7857/retrieve' \
+    env.search.topk=5 \
     ocr.use_ocr=$use_ocr \
     ocr.use_parallel=$ocr_use_parallel \
     ocr.max_workers=$ocr_max_workers \
@@ -88,10 +94,10 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger=['console','wandb'] \
     trainer.project_name='AgentOCR_search' \
     trainer.experiment_name=$experiment_name \
-    trainer.n_gpus_per_node=2 \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=200 \
-    trainer.test_freq=200 \
+    trainer.test_freq=-1 \
     trainer.total_epochs=1 \
     trainer.val_before_train=False $@
 

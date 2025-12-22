@@ -32,6 +32,66 @@ def to_numpy(data):
         raise ValueError(f"Unsupported type: {type(data)})")
     return data
 
+
+def parse_highlight_configs(config_value):
+    """
+    Parse highlight_configs from various formats into a list of dicts.
+    
+    Supported formats:
+    1. None or empty string: returns None
+    2. String format: "context1:r,g,b;context2:r,g,b"
+       Example: "<search>:0,0,255;</search>:0,0,255;<information>:255,0,0"
+    3. List of dicts: [{"context": "...", "color": [r, g, b]}, ...]
+    
+    Returns:
+        List of dicts with 'context' and 'color' keys, or None
+    """
+    if config_value is None or config_value == '' or config_value == 'null':
+        return None
+    
+    # If it's already a list of dicts, convert colors to tuples
+    if isinstance(config_value, (list, tuple)):
+        return [
+            {
+                'context': cfg.get('context', ''),
+                'color': tuple(cfg.get('color', [0, 0, 0]))
+            }
+            for cfg in config_value
+        ]
+    
+    # Parse string format: "context1:r,g,b;context2:r,g,b"
+    if isinstance(config_value, str):
+        result = []
+        # Split by semicolon to get individual highlight configs
+        parts = config_value.split(';')
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+            # Find the last colon that separates context from color
+            # This handles cases where context itself contains colons
+            last_colon_idx = part.rfind(':')
+            if last_colon_idx == -1:
+                continue
+            
+            context = part[:last_colon_idx]
+            color_str = part[last_colon_idx + 1:]
+            
+            try:
+                # Parse color as "r,g,b"
+                color = tuple(int(c.strip()) for c in color_str.split(','))
+                if len(color) == 3:
+                    result.append({
+                        'context': context,
+                        'color': color
+                    })
+            except ValueError:
+                continue
+        
+        return result if result else None
+    
+    return None
+
 class EnvironmentManagerBase:
     def __init__(self, envs, projection_f, config):
         """
@@ -56,6 +116,7 @@ class EnvironmentManagerBase:
             'use_parallel', 'max_workers',  # handled separately
             'compact_mode',  # nested config, handled separately
             'agent_select_compression',  # nested config, environment manager specific
+            'highlight_configs',  # handled separately to convert list format
         ]
 
         if use_ocr:
@@ -63,7 +124,13 @@ class EnvironmentManagerBase:
             compact_config = self.ocr_config.get('compact_mode', {})
             compact_mode = compact_config.get('enable', False) if compact_config else False
             compact_symbol = compact_config.get('compact_symbol', '⏎') if compact_config else '⏎'
-            compact_symbol_color = compact_config.get('compact_symbol_color', [255, 0, 0]) if compact_config else [255, 0, 0]
+
+            # Extract and parse highlight_configs (supports string format for Hydra compatibility)
+            # Use environment variable HIGHLIGHT_CONFIGS to avoid Hydra parsing issues with < > characters
+            highlight_configs_raw = os.environ.get('HIGHLIGHT_CONFIGS', None)
+            if highlight_configs_raw is None:
+                highlight_configs_raw = self.ocr_config.get('highlight_configs', None)
+            highlight_configs = parse_highlight_configs(highlight_configs_raw)
 
             self.ocr_tool = OCRTool(
                 enabled=True,
@@ -71,7 +138,7 @@ class EnvironmentManagerBase:
                 max_workers=self.ocr_config.get('max_workers', None),
                 compact_mode=compact_mode,
                 compact_symbol=compact_symbol,
-                compact_symbol_color=tuple(compact_symbol_color),
+                highlight_configs=highlight_configs,
                 **{k: v for k, v in self.ocr_config.items() if k not in excluded_keys}
             )
         else:

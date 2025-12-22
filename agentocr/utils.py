@@ -6,9 +6,8 @@ from functools import lru_cache
 # Global font cache
 _FONT_CACHE = {}
 
-# Compact mode special symbol and colors
+# Compact mode special symbol
 COMPACT_NEWLINE_SYMBOL = "⏎"  # Return symbol to represent newlines
-COMPACT_SYMBOL_COLOR = (255, 0, 0)  # Teal color for visibility
 
 
 def apply_compact_mode(text: str, symbol: str = COMPACT_NEWLINE_SYMBOL) -> str:
@@ -537,7 +536,7 @@ def text_to_adaptive_image(
     fast_mode: bool = True,
     compact_mode: bool = False,
     compact_symbol: str = COMPACT_NEWLINE_SYMBOL,
-    compact_symbol_color: Tuple[int, int, int] = COMPACT_SYMBOL_COLOR,
+    highlight_configs: Optional[List[Dict[str, Any]]] = None,
     **kwargs,
 ) -> Image.Image:
     """
@@ -557,9 +556,12 @@ def text_to_adaptive_image(
         max_height: Maximum image height
         use_precise: Use precise font measurements (recommended, slightly slower but optimal)
         fast_mode: Use fast mode (fixed width) instead of binary search (much faster)
-        compact_mode: Enable compact mode (replace newlines with colored symbols)
+        compact_mode: Enable compact mode (replace newlines with symbols)
         compact_symbol: Symbol to use for newline replacement in compact mode
-        compact_symbol_color: RGB color for the compact symbol
+        highlight_configs: List of dicts specifying text contexts to highlight with colors.
+                          To highlight compact_symbol, include it in highlight_configs.
+                          Example: [{"context": "Action", "color": [255, 0, 0]}, 
+                                   {"context": "⏎", "color": [128, 128, 128]}]
     
     Returns:
         PIL Image with optimally packed text
@@ -604,11 +606,11 @@ def text_to_adaptive_image(
     paragraph_spacing = int(line_height * 0.0)
     
     for line_text, is_paragraph_end in lines:
-        if compact_mode and compact_symbol in line_text:
-            # Render with colored symbols
-            _render_line_with_colored_symbols(
+        if highlight_configs:
+            # Render with highlighted contexts (also handles compact_symbol if defined in highlight_configs)
+            _render_line_with_highlights(
                 draw, line_text, optimized_padding, y_position,
-                text_color, compact_symbol, compact_symbol_color, font
+                text_color, highlight_configs, font
             )
         else:
             draw.text((optimized_padding, y_position), line_text, fill=text_color, font=font)
@@ -620,50 +622,118 @@ def text_to_adaptive_image(
     return img
 
 
-def _render_line_with_colored_symbols(
+def _get_text_width(font: ImageFont.FreeTypeFont, text: str) -> int:
+    """
+    Get the actual rendering width of text using the most accurate method available.
+    
+    Args:
+        font: Font to use
+        text: Text to measure
+    
+    Returns:
+        Width in pixels
+    """
+    if not text:
+        return 0
+    try:
+        # getlength() is the most accurate method for text width (includes kerning)
+        return int(font.getlength(text))
+    except AttributeError:
+        # Fallback for older PIL versions
+        try:
+            bbox = font.getbbox(text)
+            return bbox[2] - bbox[0]
+        except:
+            return len(text) * 6  # Last resort fallback
+
+
+def _render_line_with_highlights(
     draw: ImageDraw.ImageDraw,
     line_text: str,
     x: int,
     y: int,
     text_color: Tuple[int, int, int],
-    symbol: str,
-    symbol_color: Tuple[int, int, int],
+    highlight_configs: Optional[List[Dict[str, Any]]],
     font: ImageFont.FreeTypeFont
 ) -> None:
     """
-    Render a line of text with colored symbols for compact mode.
+    Render a line of text with multiple highlighted contexts in different colors.
+    
+    Uses cumulative prefix width calculation to ensure proper character spacing
+    and kerning across segment boundaries.
     
     Args:
         draw: PIL ImageDraw object
         line_text: Text to render
         x: X position
         y: Y position
-        text_color: Color for regular text
-        symbol: The symbol to render in different color
-        symbol_color: Color for the symbol
+        text_color: Default color for regular text
+        highlight_configs: List of dicts with 'context' and 'color' keys
+                          Example: [{"context": "Action", "color": [255, 0, 0]}, 
+                                   {"context": "Observation", "color": [0, 255, 0]}]
         font: Font to use
     """
-    current_x = x
-    parts = line_text.split(symbol)
+    if not highlight_configs:
+        # No highlights, render normally
+        draw.text((x, y), line_text, fill=text_color, font=font)
+        return
     
-    for i, part in enumerate(parts):
-        # Draw the text part
-        if part:
-            draw.text((current_x, y), part, fill=text_color, font=font)
-            try:
-                bbox = font.getbbox(part)
-                current_x += bbox[2] - bbox[0]
-            except:
-                current_x += len(part) * 6  # Fallback
+    # Build a list of (start_pos, end_pos, color) for all matches
+    highlights = []
+    for config in highlight_configs:
+        context = config.get('context', '')
+        color = tuple(config.get('color', text_color))
+        if not context:
+            continue
         
-        # Draw the symbol (except after the last part)
-        if i < len(parts) - 1:
-            draw.text((current_x, y), symbol, fill=symbol_color, font=font)
-            try:
-                bbox = font.getbbox(symbol)
-                current_x += bbox[2] - bbox[0]
-            except:
-                current_x += 10  # Fallback
+        # Find all occurrences of this context in the line
+        start = 0
+        while True:
+            pos = line_text.find(context, start)
+            if pos == -1:
+                break
+            highlights.append((pos, pos + len(context), color))
+            start = pos + 1
+    
+    # Sort highlights by start position
+    highlights.sort(key=lambda h: h[0])
+    
+    # Merge overlapping highlights (take the first one in case of overlap)
+    merged_highlights = []
+    for start, end, color in highlights:
+        if merged_highlights and start < merged_highlights[-1][1]:
+            # Overlapping, keep the existing one
+            continue
+        merged_highlights.append((start, end, color))
+    
+    # If no matches found, render normally
+    if not merged_highlights:
+        draw.text((x, y), line_text, fill=text_color, font=font)
+        return
+    
+    # Build segments: list of (text, color, start_char_pos, end_char_pos)
+    segments = []
+    current_pos = 0
+    
+    for start, end, color in merged_highlights:
+        # Add non-highlighted segment before this highlight
+        if current_pos < start:
+            segments.append((line_text[current_pos:start], text_color, current_pos, start))
+        # Add highlighted segment
+        segments.append((line_text[start:end], color, start, end))
+        current_pos = end
+    
+    # Add remaining non-highlighted segment
+    if current_pos < len(line_text):
+        segments.append((line_text[current_pos:], text_color, current_pos, len(line_text)))
+    
+    # Render each segment using cumulative prefix width for positioning
+    # This ensures proper kerning is considered
+    for segment_text, segment_color, start_char_pos, end_char_pos in segments:
+        # Calculate x position using prefix width (considers kerning)
+        prefix = line_text[:start_char_pos]
+        segment_x = x + _get_text_width(font, prefix)
+        draw.text((segment_x, y), segment_text, fill=segment_color, font=font)
 
 
 def text_to_adaptive_image_compact(
@@ -679,7 +749,7 @@ def text_to_adaptive_image_compact(
     max_height: int = 1024,
     use_precise: bool = False,
     compact_symbol: str = COMPACT_NEWLINE_SYMBOL,
-    compact_symbol_color: Tuple[int, int, int] = COMPACT_SYMBOL_COLOR,
+    highlight_configs: Optional[List[Dict[str, Any]]] = None,
     **kwargs,
 ) -> Tuple[Image.Image, int, str, List[Tuple[str, bool]]]:
     """
@@ -702,7 +772,10 @@ def text_to_adaptive_image_compact(
         max_height: Maximum image height
         use_precise: Use precise font measurements
         compact_symbol: Symbol to use for newline replacement
-        compact_symbol_color: Color for the compact symbol
+        highlight_configs: List of dicts specifying text contexts to highlight with colors.
+                          To highlight compact_symbol, include it in highlight_configs.
+                          Example: [{"context": "Action", "color": [255, 0, 0]}, 
+                                   {"context": "⏎", "color": [128, 128, 128]}]
     
     Returns:
         Tuple of:
@@ -759,14 +832,15 @@ def text_to_adaptive_image_compact(
     img = Image.new('RGB', (width, height), bg_color)
     draw = ImageDraw.Draw(img)
     
-    # Render text with colored symbols
+    # Render text with colored symbols and highlights
     y_position = optimized_padding
     
     for line_text, _ in lines:
-        if compact_symbol in line_text:
-            _render_line_with_colored_symbols(
+        if highlight_configs:
+            # Render with highlighted contexts (also handles compact_symbol if defined in highlight_configs)
+            _render_line_with_highlights(
                 draw, line_text, optimized_padding, y_position,
-                text_color, compact_symbol, compact_symbol_color, font
+                text_color, highlight_configs, font
             )
         else:
             draw.text((optimized_padding, y_position), line_text, fill=text_color, font=font)
@@ -783,7 +857,7 @@ def trajectory_to_image(
     fast_mode: bool = True,
     compact_mode: bool = False,
     compact_symbol: str = COMPACT_NEWLINE_SYMBOL,
-    compact_symbol_color: Tuple[int, int, int] = COMPACT_SYMBOL_COLOR,
+    highlight_configs: Optional[List[Dict[str, Any]]] = None,
     **kwargs
 ) -> Image.Image:
     """
@@ -796,9 +870,12 @@ def trajectory_to_image(
         padding: Padding in pixels (optimized to 8 for minimal waste)
         use_precise: Use precise font measurements for optimal packing (recommended)
         fast_mode: Use fast mode (fixed width) for real-time performance (default True)
-        compact_mode: Enable compact mode (replace newlines with colored symbols)
+        compact_mode: Enable compact mode (replace newlines with symbols)
         compact_symbol: Symbol to use for newline replacement in compact mode
-        compact_symbol_color: RGB color for the compact symbol
+        highlight_configs: List of dicts specifying text contexts to highlight with colors.
+                          To highlight compact_symbol, include it in highlight_configs.
+                          Example: [{"context": "Action", "color": [255, 0, 0]}, 
+                                   {"context": "⏎", "color": [128, 128, 128]}]
         **kwargs: Additional parameters passed to text_to_adaptive_image
 
     Returns:
@@ -815,6 +892,6 @@ def trajectory_to_image(
         fast_mode=fast_mode,
         compact_mode=compact_mode,
         compact_symbol=compact_symbol,
-        compact_symbol_color=compact_symbol_color,
+        highlight_configs=highlight_configs,
         **kwargs
     )

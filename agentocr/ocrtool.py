@@ -28,8 +28,7 @@ from .utils import (
     apply_compact_mode,
     get_font_metrics,
     _get_cached_font,
-    COMPACT_NEWLINE_SYMBOL,
-    COMPACT_SYMBOL_COLOR
+    COMPACT_NEWLINE_SYMBOL
 )
 
 
@@ -76,7 +75,7 @@ class OCRTool(BaseOCRTool):
         enable_cache: bool = True,
         compact_mode: bool = False,
         compact_symbol: str = COMPACT_NEWLINE_SYMBOL,
-        compact_symbol_color: Tuple[int, int, int] = COMPACT_SYMBOL_COLOR,
+        highlight_configs: Optional[List[Dict[str, Any]]] = None,
         **kwargs
     ):
         """
@@ -99,9 +98,12 @@ class OCRTool(BaseOCRTool):
             use_precise: Use precise font measurements for optimal packing (recommended)
             fast_mode: Use fast mode (fixed width) for real-time performance (default True)
             enable_cache: Enable LRU caching of rendered images for speedup (default True)
-            compact_mode: Enable compact mode (replace newlines with colored symbols)
+            compact_mode: Enable compact mode (replace newlines with symbols)
             compact_symbol: Symbol to use for newline replacement in compact mode
-            compact_symbol_color: RGB color for the compact symbol
+            highlight_configs: List of dicts specifying text contexts to highlight with colors.
+                              To highlight compact_symbol, include it in highlight_configs.
+                              Example: [{"context": "Action", "color": [255, 0, 0]}, 
+                                       {"context": "⏎", "color": [128, 128, 128]}]
             **kwargs: Additional parameters passed to trajectory_to_image
         """
         self.enabled = enabled
@@ -121,7 +123,7 @@ class OCRTool(BaseOCRTool):
         self.enable_cache = enable_cache
         self.compact_mode = compact_mode
         self.compact_symbol = compact_symbol
-        self.compact_symbol_color = tuple(compact_symbol_color)
+        self.highlight_configs = highlight_configs
         self.kwargs = kwargs
         # Initialize folder for saving trajectory images
         self.trajectory_images_dir = os.path.join(os.getcwd(), "logs/trajectory_images")
@@ -132,6 +134,8 @@ class OCRTool(BaseOCRTool):
         self._master_images = {} if enable_cache else None
         # Cache statistics
         self._cache_stats = {'hits': 0, 'misses': 0, 'total': 0}
+        # Track last printed batch number for cache stats
+        self._last_printed_cache_batch = 0
         # Compact mode cache: stores incomplete line text for each environment
         # Format: {env_idx: {'incomplete_text': str, 'complete_lines_img': np.ndarray, 'complete_lines_count': int}}
         self._compact_cache = {} if enable_cache and compact_mode else None
@@ -283,7 +287,7 @@ class OCRTool(BaseOCRTool):
             fast_mode=config['fast_mode'],
             compact_mode=config['compact_mode'],
             compact_symbol=config['compact_symbol'],
-            compact_symbol_color=config['compact_symbol_color'],
+            highlight_configs=config['highlight_configs'],
             **config['extra_kwargs']
         )
         
@@ -343,7 +347,7 @@ class OCRTool(BaseOCRTool):
             'font_size', 'padding',
             'bg_color', 'text_color', 'font_path', 'min_width', 'max_width',
             'min_height', 'max_height', 'use_precise', 'fast_mode',
-            'compact_mode', 'compact_symbol', 'compact_symbol_color'
+            'compact_mode', 'compact_symbol', 'highlight_configs'
         }
         
         for key, value in override_kwargs.items():
@@ -367,7 +371,7 @@ class OCRTool(BaseOCRTool):
             'fast_mode': override_kwargs.get('fast_mode', self.fast_mode),
             'compact_mode': override_kwargs.get('compact_mode', self.compact_mode),
             'compact_symbol': override_kwargs.get('compact_symbol', self.compact_symbol),
-            'compact_symbol_color': override_kwargs.get('compact_symbol_color', self.compact_symbol_color),
+            'highlight_configs': override_kwargs.get('highlight_configs', self.highlight_configs),
             'extra_kwargs': extra_kwargs
         }
     
@@ -410,17 +414,16 @@ class OCRTool(BaseOCRTool):
         """Check if compact mode is enabled."""
         return self.compact_mode
     
-    def set_compact_symbol(self, symbol: str, color: Optional[Tuple[int, int, int]] = None):
+    def set_compact_symbol(self, symbol: str):
         """
         Set the symbol used for newline replacement in compact mode.
         
         Args:
             symbol: The symbol to use (e.g., '⏎', '↵', '¶')
-            color: Optional RGB color tuple for the symbol
+        
+        Note: To set the color, add the symbol to highlight_configs.
         """
         self.compact_symbol = symbol
-        if color is not None:
-            self.compact_symbol_color = tuple(color)
     
     def update_config(self, **kwargs):
         """
@@ -528,6 +531,7 @@ class OCRTool(BaseOCRTool):
         trajectory_contexts: List[str],
         current_steps: List[int],
         env_indices: List[int],
+        batch_size: int,
         **override_kwargs
     ) -> List[np.ndarray]:
         """
@@ -653,9 +657,12 @@ class OCRTool(BaseOCRTool):
                                         step_start, step_end, **override_kwargs)
                 
                 image_arrays.append(img_array.copy())
-            
-            # # Periodically print cache stats
-            if self._cache_stats['total'] % 256 == 0:
+        
+        # Print cache stats when we've processed a new batch
+        if batch_size > 0:
+            current_batch = self._cache_stats['total'] // batch_size
+            if current_batch > self._last_printed_cache_batch:
+                self._last_printed_cache_batch = current_batch
                 self._print_cache_stats()
         
         return image_arrays
@@ -665,6 +672,7 @@ class OCRTool(BaseOCRTool):
         trajectory_contexts: List[str],
         current_steps: List[int],
         env_indices: List[int],
+        batch_size: int,
         **override_kwargs
     ) -> List[np.ndarray]:
         """
@@ -778,7 +786,7 @@ class OCRTool(BaseOCRTool):
                         max_height=config['max_height'],
                         use_precise=config['use_precise'],
                         compact_symbol=config['compact_symbol'],
-                        compact_symbol_color=config['compact_symbol_color']
+                        highlight_configs=config['highlight_configs']
                     )
                     new_img_array = np.array(new_img)
                     
@@ -826,7 +834,7 @@ class OCRTool(BaseOCRTool):
                     max_height=config['max_height'],
                     use_precise=config['use_precise'],
                     compact_symbol=config['compact_symbol'],
-                    compact_symbol_color=config['compact_symbol_color']
+                    highlight_configs=config['highlight_configs']
                 )
                 
                 img_array = np.array(img)
@@ -856,9 +864,12 @@ class OCRTool(BaseOCRTool):
                 cache_data['last_context_hash'] = context_hash
                 
                 image_arrays.append(img_array)
-            
-            # Periodically print compact cache stats
-            if self._compact_cache_stats['total'] % 256 == 0:
+        
+        # Print compact cache stats when we've processed a new batch
+        if batch_size > 0:
+            current_batch = self._compact_cache_stats['total'] // batch_size
+            if current_batch > self._last_printed_cache_batch:
+                self._last_printed_cache_batch = current_batch
                 self._print_compact_cache_stats()
         
         return image_arrays
@@ -897,7 +908,7 @@ class OCRTool(BaseOCRTool):
                 max_height=config['max_height'],
                 use_precise=config['use_precise'],
                 compact_symbol=config['compact_symbol'],
-                compact_symbol_color=config['compact_symbol_color']
+                highlight_configs=config['highlight_configs']
             )
             cache_data['incomplete_text'] = incomplete_text
             return np.array(img)
@@ -920,7 +931,7 @@ class OCRTool(BaseOCRTool):
                 max_height=config['max_height'],
                 use_precise=config['use_precise'],
                 compact_symbol=config['compact_symbol'],
-                compact_symbol_color=config['compact_symbol_color']
+                highlight_configs=config['highlight_configs']
             )
             incomplete_img = np.array(img)
             
@@ -1152,6 +1163,7 @@ class OCRTool(BaseOCRTool):
                             active_contexts, 
                             active_current_steps, 
                             env_indices=active_indices,
+                            batch_size=batch_size,
                             **render_kwargs
                         )
                     else:
@@ -1159,6 +1171,7 @@ class OCRTool(BaseOCRTool):
                             active_contexts, 
                             active_current_steps,
                             env_indices=active_indices,
+                            batch_size=batch_size,
                             **render_kwargs
                         )
                 else:

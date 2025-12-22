@@ -1,6 +1,14 @@
 set -x
 
 export CUDA_VISIBLE_DEVICES=2,3
+# Highlight configs: use environment variable to avoid Hydra parsing issues with < > characters
+# Format: "context1:r,g,b;context2:r,g,b"
+# Observation 1, 2, 3, ... 50 are highlighted in blue (0,0,255)
+# Action 1, 2, 3, ... 50 are highlighted in red (255,0,0)
+obs_configs=$(for i in {1..50}; do echo -n "[Observation $i]:0,0,255;"; done)
+action_configs=$(for i in {1..50}; do echo -n "[Action $i]:255,0,0;"; done)
+export HIGHLIGHT_CONFIGS="${obs_configs}${action_configs}"
+
 
 use_ocr=True
 ocr_use_parallel=True
@@ -11,12 +19,12 @@ ocr_max_width=336
 ocr_max_height=4096
 
 # Compact mode settings (replace newlines with colored symbols)
-compact_mode_enable=False
+compact_mode_enable=True
 
 # Agent-selected compression settings
 agent_select_compression_enable=True
-compression_reward_coef=0.001  # base coefficient for compression reward
-compression_failure_penalty_coef=0.0  # >0 to enable compression-based penalty on failed trajectories
+compression_reward_coef=0.01  # base coefficient for compression reward
+compression_failure_penalty_coef=0.001  # >0 to enable compression-based penalty on failed trajectories
 
 num_cpus_per_env_worker=0.1 # The CPU resource allocated for each environment worker. If you want to use less CPU resources, you can decrease this value.
 
@@ -35,7 +43,7 @@ else
     max_prompt_length=5120
 fi
 
-experiment_name="ocr${use_ocr}_compact${compact_mode_enable}_agentcompress${agent_select_compression_enable}_maxprompt${max_prompt_length}_rewardcoef${compression_reward_coef}_failurepenalty${compression_failure_penalty_coef}_fontsize${ocr_font_size}_maxwidth${ocr_max_width}_maxheight${ocr_max_height}"
+experiment_name="ocr${use_ocr}_compact${compact_mode_enable}_selfcompress${agent_select_compression_enable}_maxprompt${max_prompt_length}_poscoef${compression_reward_coef}_negcoef${compression_failure_penalty_coef}_fs${ocr_font_size}_maxwidth${ocr_max_width}_maxheight${ocr_max_height}_qwen25_3b"
 
 # We only use data preparation to indicate the modality and the data size.
 python3 -m examples.data_preprocess.prepare \

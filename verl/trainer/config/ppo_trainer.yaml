@@ -329,11 +329,13 @@ ocr:
   max_width: 504 # Maximum image width in pixels
   min_height: 28  # Minimum image height in pixels
   max_height: 5488  # Maximum image height in pixels, 512xfont_size
-  # Compact mode settings (replace newlines with colored symbols)
+  # Compact mode settings (replace newlines with symbols)
   compact_mode:
     enable: False
     compact_symbol: "⏎"
-    compact_symbol_color: [255, 0, 0]  # RGB color (teal)
+  # Highlight configs: use simple string format "context1:r,g,b;context2:r,g,b"
+  # Example: "<search>:0,0,255;</search>:0,0,255;<information>:255,0,0;</information>:255,0,0"
+  highlight_configs: null
   # Agent-selected compression settings
   agent_select_compression:
     enable: False  # Enable agent to select compression factor for OCR images
