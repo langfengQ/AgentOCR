@@ -18,7 +18,7 @@ You are an expert agent tasked with answering the given question step-by-step.
 Your question: {task_description}
 
 Now it's your turn to respond for the current step.
-You should first conduct a reasoning process about the question and what is still missing, uncertain, ambiguous, or unverified. After completing your reasoning, choose only one of the following actions (do not perform both):
+You should first conduct a reasoning process. After completing your reasoning, choose only one of the following actions (do not perform both):
 (1) If any required knowledge is missing or uncertain, you MUST call a search engine to get more external information using format: <search> your query </search>.
 (2) Only if you have sufficient information to answer the question with high confidence, provide your final answer within <answer> </answer> tags. For example, <answer>Beijing</answer>.
 """
@@ -31,7 +31,7 @@ Prior to this step, you have already taken {step_count} step(s). Below is the in
 {memory_context}
 
 Now it's your turn to respond for the current step.
-You should first conduct a reasoning process about the question, what is already known from previous <information>, and what is still missing, uncertain, ambiguous, or unverified. After completing your reasoning, choose only one of the following actions (do not perform both):
+You should first conduct a reasoning process. After completing your reasoning, choose only one of the following actions (do not perform both):
 (1) If any required knowledge is missing or uncertain, you MUST call a search engine to get more external information using format: <search> your query </search>.
 (2) Only if you have sufficient information to answer the question with high confidence, provide your final answer within <answer> </answer> tags. For example, <answer>Beijing</answer>.
 """
@@ -41,7 +41,7 @@ You are an expert agent tasked with answering the given question step-by-step.
 Your question: {task_description}
 
 Now it's your turn to respond for the current step.
-You should first conduct a reasoning process about the question and what is still missing, uncertain, ambiguous, or unverified. After completing your reasoning, choose only one of the following actions (do not perform both):
+You should first conduct a reasoning process. After completing your reasoning, choose only one of the following actions (do not perform both):
 (1) If any required knowledge is missing or uncertain, you MUST call a search engine to get more external information using format: <search> your query </search>.
 (2) Only if you have sufficient information to answer the question with high confidence, provide your final answer within <answer> </answer> tags. For example, <answer>Beijing</answer>.
 """
@@ -50,18 +50,18 @@ SEARCH_TEMPLATE_OCR = """<image>
 You are an expert agent tasked with answering the given question step-by-step.
 Your question: {task_description}
 
-Prior to this step, you have already taken {step_count} step(s). The provided image shows the full interaction history so far, where <search> </search> wrapped your past search queries and <information> </information> wrapped the corresponding search results returned by the external search engine.
+Prior to this step, you have already taken {step_count} step(s). The provided image shows the full interaction history so far, where <search> </search> wrapped your past search queries and <information> </information> wrapped the corresponding search results returned by the external search engine. You must carefully read all text in the image and find the key information that is related to the question.
 
 Now it's your turn to respond for the current step.
-You should first conduct a reasoning process about the question, what is already known from previous <information>, and what is still missing, uncertain, ambiguous, or unverified. After completing your reasoning, choose only one of the following actions (do not perform both):
+You should first conduct a reasoning process. After completing your reasoning, choose only one of the following actions (do not perform both):
 (1) If any required knowledge is missing or uncertain, you MUST call a search engine to get more external information using format: <search> your query </search>.
 (2) Only if you have sufficient information to answer the question with high confidence, provide your final answer within <answer> </answer> tags. For example, <answer>Beijing</answer>.
 """
 
 SEARCH_COMPRESSION_TEMPLATE_NO_HIS = """
-Additionally, you need to select an image compression factor (>1.0) for the next image. Higher compression reduces cost, but over-compression degrades image quality and obscures the interaction history. Thus, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.2</compression>).
+Additionally, you need to select an image compression factor (>1.0) for the next image. Higher compression reduces cost, but over-compression degrades image quality and obscures the interaction history. Thus, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression> </compression> tags (e.g., <compression>1.2</compression>).
 """
 
 SEARCH_COMPRESSION_TEMPLATE = """
-Additionally, you need to select an image compression factor (>1.0) for the next image (note: the provided image uses a compression factor of {compression_factor}). Higher compression reduces cost, but over-compression degrades image quality and obscures the interaction history. Thus, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.2</compression>).
+Additionally, you need to select an image compression factor (>1.0) for the next image (note: the provided image uses a compression factor of {compression_factor}). Higher compression reduces cost, but over-compression degrades image quality and obscures the interaction history. Thus, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression> </compression> tags (e.g., <compression>1.2</compression>).
 """

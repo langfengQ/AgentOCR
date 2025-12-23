@@ -71,20 +71,20 @@ def alfworld_projection(actions: List[str], action_pools: List[List[str]], check
                     # Clamp to >= 1.0 (higher values = more compression)
                     if math.isnan(compression_value) or not math.isfinite(compression_value):
                         compression_value = 1.0
-                        valids[i] = 0
+                        # valids[i] = 0
                     elif compression_value < 1.0:
                         compression_value = 1.0
-                        valids[i] = 0
-                    elif compression_value > 5.0:
-                        compression_value = 5.0
-                        valids[i] = 0
+                        # valids[i] = 0
+                    elif compression_value > 10.0:
+                        compression_value = 10.0
+                        # valids[i] = 0
                     compression_factors[i] = compression_value
                 except:
                     # If parsing fails, keep default 1.0
                     compression_factors[i] = 1.0
-                    valids[i] = 0
-            else:
-                valids[i] = 0
+                    # valids[i] = 0
+            # else:
+            #     valids[i] = 0
 
         # check <think>...</think>
         think_start_idx = original_str.find("<think>")

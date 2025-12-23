@@ -1,10 +1,11 @@
 set -x
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0,1
+export WANDB_API_KEY=87f81a7f5ddd1384da18e7caf7fec2106b0c6b9c
 # Highlight configs: use environment variable to avoid Hydra parsing issues with < > characters
 # Format: "context1:r,g,b;context2:r,g,b"
 # <search> and </search> are highlighted in blue (0,0,255)
 # <information> and </information> are highlighted in red (255,0,0)
-# export HIGHLIGHT_CONFIGS='<search>:0,0,255;</search>:0,0,255;<information>:255,0,0;</information>:255,0,0'
+export HIGHLIGHT_CONFIGS='<search>:0,0,255;</search>:0,0,255;<information>:255,0,0;</information>:255,0,0'
 
 use_ocr=True
 ocr_use_parallel=True
@@ -28,18 +29,18 @@ group_size=5
 # Set mode based on use_ocr: visual if use_ocr=True, text otherwise
 if [ "$use_ocr" = "True" ]; then
     mode="visual"
-    model=Qwen/Qwen3-VL-8B-Instruct # Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen3-VL-4B-Instruct
-    max_prompt_length=5120
+    model=Qwen/Qwen3-VL-4B-Instruct # Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen3-VL-4B-Instruct
+    max_prompt_length=4096
 else
     mode="text"
-    model=Qwen/Qwen3-8B
-    max_prompt_length=12288
+    model=Qwen/Qwen3-4B
+    max_prompt_length=10240
 fi
 
 TRAIN_DATA="$HOME/data/searchR1_processed_direct/train.parquet"
 VAL_DATA="$HOME/data/searchR1_processed_direct/test.parquet"
 
-experiment_name="ocr${use_ocr}_compact${compact_mode_enable}_selfcompress${agent_select_compression_enable}_maxprompt${max_prompt_length}_poscoef${compression_reward_coef}_negcoef${compression_failure_penalty_coef}_fs${ocr_font_size}_maxwidth${ocr_max_width}_maxheight${ocr_max_height}_qwen3_8b"
+experiment_name="ocr${use_ocr}_compact${compact_mode_enable}_selfcompress${agent_select_compression_enable}_maxprompt${max_prompt_length}_poscoef${compression_reward_coef}_negcoef${compression_failure_penalty_coef}_fs${ocr_font_size}_maxwidth${ocr_max_width}_maxheight${ocr_max_height}_qwen3_4b"
 
 
 python3 -m verl.trainer.main_ppo \
@@ -94,9 +95,9 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger=['console','wandb'] \
     trainer.project_name='AgentOCR_search' \
     trainer.experiment_name=$experiment_name \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
-    trainer.save_freq=200 \
+    trainer.save_freq=150 \
     trainer.test_freq=-1 \
     trainer.total_epochs=1 \
     trainer.val_before_train=False $@
