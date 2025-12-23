@@ -189,7 +189,9 @@ def compute_data_metrics(batch: DataProto, use_critic: bool = True) -> Dict[str,
 
     # compression factor
     if 'compression_factor' in batch.non_tensor_batch:
-        metrics['compression_factor/mean'] = batch.non_tensor_batch["compression_factor"].mean().item()
+        metrics["ocr/compression_factor/mean"] = batch.non_tensor_batch["compression_factor"].mean().item()
+        metrics["ocr/compression_factor/max"] = batch.non_tensor_batch["compression_factor"].max().item()
+        metrics["ocr/compression_factor/min"] = batch.non_tensor_batch["compression_factor"].min().item()
     
     # ocr image dimensions (height, width, size)
     if 'image_size' in batch.non_tensor_batch:
