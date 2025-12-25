@@ -171,7 +171,7 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
             )
             end_time = time.time()
             self.ocr_time += end_time - start_time
-            print(f"Step {len(self.memory[0])+1}, OCR time: {end_time - start_time}")
+            # print(f"Step {len(self.memory[0])+1}, OCR time: {end_time - start_time}")
 
         for i in range(len(text_obs)):
             if init or self.config.env.history_length <= 0:
@@ -326,7 +326,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
             )
             end_time = time.time()
             self.ocr_time += end_time - start_time
-            print(f"Step {len(self.memory[0])+1}, OCR time: {end_time - start_time}")
+            # print(f"Step {len(self.memory[0])+1}, OCR time: {end_time - start_time}")
         elif not init and self.config.env.history_length > 0:
             # OCRTool not enabled, but we still need to fetch memory for text obs
             memory_contexts, valid_lens = self.memory.fetch(

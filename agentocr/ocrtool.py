@@ -28,6 +28,7 @@ from .utils import (
     apply_compact_mode,
     get_font_metrics,
     _get_cached_font,
+    preprocess_trajectory_contexts,
     COMPACT_NEWLINE_SYMBOL
 )
 
@@ -1132,6 +1133,7 @@ class OCRTool(BaseOCRTool):
                 raise ValueError("batch_size must be provided when trajectory_contexts is None or empty")
             image_arrays = self.create_blank_images(batch_size, **override_kwargs)
         else:
+            trajectory_contexts = preprocess_trajectory_contexts(trajectory_contexts)
             # If active_masks is None, set all to True
             if active_masks is None:
                 active_masks = [True] * len(trajectory_contexts)

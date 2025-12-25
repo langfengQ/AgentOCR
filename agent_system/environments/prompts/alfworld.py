@@ -59,9 +59,9 @@ Once you've finished your reasoning, you should choose an admissible action for 
 """
 
 ALFWORLD_COMPRESSION_TEMPLATE_NO_HIS = """
-Additionally, you need to select an image compression factor (>1.0) for the next image. Higher compression reduces cost, but over-compression degrades image quality and obscures the interaction history. Thus, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.2</compression>).
+Additionally, select an image compression factor (>1.0) for the next image. Higher compression lowers cost, but too much compression harms image quality. Thus, you should select the highest compression factor that preserves essential information for reliable task completion. You must provide the compression factor within <compression> </compression> tags (e.g., <compression>1.2</compression>).
 """
 
 ALFWORLD_COMPRESSION_TEMPLATE = """
-Additionally, you need to select an image compression factor (>1.0) for the next image (note: the provided image uses a compression factor of {compression_factor}). Higher compression reduces cost, but over-compression degrades image quality and obscures the interaction history. Thus, you should select the highest compression level that preserves essential information for reliable task completion. You must present your next compression factor within <compression></compression> tags (e.g., <compression>1.2</compression>).
+Additionally, select an image compression factor (>1.0) for the next image (note: the provided image uses a compression factor of {compression_factor}). Higher compression lowers cost, but too much compression harms image quality. Thus, you should select the highest compression factor that preserves essential information for reliable task completion. You must provide the next compression factor within <compression> </compression> tags (e.g., <compression>1.2</compression>).
 """

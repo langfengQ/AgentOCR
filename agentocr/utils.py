@@ -52,6 +52,12 @@ def get_compact_symbol_positions(text: str, symbol: str = COMPACT_NEWLINE_SYMBOL
         start = pos + 1
     return positions
 
+def preprocess_trajectory_contexts(trajectory_contexts: List[str]) -> List[str]:
+    """
+    Preprocess trajectory contexts.
+    """
+    # replace \" with "
+    return [context.replace('\\"', '\"') for context in trajectory_contexts]
 
 def _get_cached_font(font_path: Optional[str], font_size: int) -> ImageFont.FreeTypeFont:
     """
