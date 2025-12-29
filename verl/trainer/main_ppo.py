@@ -153,6 +153,7 @@ class TaskRunner:
                     "compression_factor_max": config.ocr.agent_select_compression.compression_factor_max,
                     "compression_reward_coef": config.ocr.agent_select_compression.compression_reward_coef,
                     "compression_failure_penalty_coef": config.ocr.agent_select_compression.compression_failure_penalty_coef,
+                    "compression_reward_every_n_steps": config.ocr.agent_select_compression.compression_reward_every_n_steps,
                 }
             else:
                 from agent_system.reward_manager import EpisodeRewardManager

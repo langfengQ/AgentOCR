@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 from functools import lru_cache
 import hashlib
+import math
 
 from .base import BaseOCRTool
 from .utils import (
@@ -1323,9 +1324,9 @@ class OCRTool(BaseOCRTool):
             # Get original dimensions
             height, width = img_array.shape[:2]
             
-            # Calculate new dimensions
-            new_width = max(28, int(width / cf))
-            new_height = max(28, int(height / cf))
+            # Calculate new dimensions, sqrt(cf) is the factor by which the dimensions are reduced
+            new_width = max(28, int(width / math.sqrt(cf)))
+            new_height = max(28, int(height / math.sqrt(cf)))
             
             # Ensure minimum dimensions for readability
             new_width = max(new_width, self.min_width)

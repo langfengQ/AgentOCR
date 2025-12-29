@@ -698,6 +698,9 @@ class RayPPOTrainer:
         sample_outputs = []
         sample_scores = []
 
+        # Add progress bar for validation
+        val_progress_bar = tqdm(total=len(self.val_dataloader), desc="Validation Progress")
+
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
 
@@ -706,6 +709,7 @@ class RayPPOTrainer:
 
             # we only do validation on rule-based rm
             if self.config.reward_model.enable and test_batch[0].non_tensor_batch["reward_model"]["style"] == "model":
+                val_progress_bar.close()
                 return {}
 
             # Store original inputs
@@ -781,6 +785,9 @@ class RayPPOTrainer:
                     # all success_rate should be the same
                     for i in range(1, len(test_batch.non_tensor_batch[k])):
                         assert test_batch.non_tensor_batch[k][0] == test_batch.non_tensor_batch[k][i], f'not all success_rate are the same, 0: {test_batch.non_tensor_batch[k][0]}, {i}: {test_batch.non_tensor_batch[k][i]}'
+
+            # Update validation progress bar
+            val_progress_bar.update(1)
 
         self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 

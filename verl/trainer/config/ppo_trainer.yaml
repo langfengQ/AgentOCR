@@ -342,3 +342,4 @@ ocr:
     compression_factor_max: 10.0  # upper bound for compression_factor before penalty kicks in
     compression_reward_coef: 0.001  # base coefficient for compression reward
     compression_failure_penalty_coef: 0.0  # >0 to enable compression-based penalty on failed trajectories
+    compression_reward_every_n_steps: 1  # apply compression reward every n steps (1 = every step)

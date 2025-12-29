@@ -1,10 +1,12 @@
 set -x
+export CUDA_VISIBLE_DEVICES=6,7
 
-export CUDA_VISIBLE_DEVICES=2,3
+###############
 # Highlight configs: use environment variable to avoid Hydra parsing issues with < > characters
 # Format: "context1:r,g,b;context2:r,g,b"
 # Observation 1, 2, 3, ... 50 are highlighted in blue (0,0,255)
 # Action 1, 2, 3, ... 50 are highlighted in red (255,0,0)
+################
 obs_configs=$(for i in {1..50}; do echo -n "[Observation $i]:0,0,255;"; done)
 action_configs=$(for i in {1..50}; do echo -n "[Action $i]:255,0,0;"; done)
 export HIGHLIGHT_CONFIGS="${obs_configs}${action_configs}"
@@ -19,12 +21,13 @@ ocr_max_width=336
 ocr_max_height=4096
 
 # Compact mode settings (replace newlines with colored symbols)
-compact_mode_enable=True
+compact_mode_enable=False
 
 # Agent-selected compression settings
 agent_select_compression_enable=True
 compression_reward_coef=0.01  # base coefficient for compression reward
-compression_failure_penalty_coef=0.001  # >0 to enable compression-based penalty on failed trajectories
+compression_failure_penalty_coef=0.0  # >0 to enable compression-based penalty on failed trajectories
+compression_reward_every_n_steps=3  # apply compression reward every n steps
 
 num_cpus_per_env_worker=0.1 # The CPU resource allocated for each environment worker. If you want to use less CPU resources, you can decrease this value.
 
@@ -35,15 +38,16 @@ group_size=8
 # Set mode based on use_ocr: visual if use_ocr=True, text otherwise
 if [ "$use_ocr" = "True" ]; then
     mode="visual"
-    model=Qwen/Qwen2.5-VL-3B-Instruct # Qwen/Qwen2.5-VL-3B-Instruct, Qwen/Qwen3-VL-2B-Instruct
+    model=Qwen/Qwen2.5-VL-3B-Instruct
     max_prompt_length=2048
+    experiment_name="ocr_compact${compact_mode_enable}_selfcompress${agent_select_compression_enable}_poscoef${compression_reward_coef}_negcoef${compression_failure_penalty_coef}_everyn${compression_reward_every_n_steps}_fs${ocr_font_size}_maxwidth${ocr_max_width}_maxheight${ocr_max_height}_maxprompt${max_prompt_length}_qwen25_vl_3b"
 else
     mode="text"
     model=Qwen/Qwen2.5-3B-Instruct
     max_prompt_length=5120
+    experiment_name="text_maxprompt${max_prompt_length}_qwen25_3b"
 fi
 
-experiment_name="ocr${use_ocr}_compact${compact_mode_enable}_selfcompress${agent_select_compression_enable}_maxprompt${max_prompt_length}_poscoef${compression_reward_coef}_negcoef${compression_failure_penalty_coef}_fs${ocr_font_size}_maxwidth${ocr_max_width}_maxheight${ocr_max_height}_qwen25_3b"
 
 # We only use data preparation to indicate the modality and the data size.
 python3 -m examples.data_preprocess.prepare \
@@ -74,7 +78,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \
@@ -99,13 +103,14 @@ python3 -m verl.trainer.main_ppo \
     ocr.agent_select_compression.enable=$agent_select_compression_enable \
     ocr.agent_select_compression.compression_reward_coef=$compression_reward_coef \
     ocr.agent_select_compression.compression_failure_penalty_coef=$compression_failure_penalty_coef \
+    ocr.agent_select_compression.compression_reward_every_n_steps=$compression_reward_every_n_steps \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='AgentOCR_alfworld' \
     trainer.experiment_name=$experiment_name \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
-    trainer.save_freq=-1 \
-    trainer.test_freq=5 \
+    trainer.save_freq=50 \
+    trainer.test_freq=10 \
     trainer.total_epochs=200 \
     trainer.val_before_train=True $@

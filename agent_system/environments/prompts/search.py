@@ -27,7 +27,7 @@ SEARCH_TEMPLATE = """
 You are an expert agent tasked with answering the given question step-by-step.
 Your question: {task_description}
 
-Prior to this step, you have already taken {step_count} step(s). Below is the interaction history, where <search> </search> wrapped your past search queries and <information> </information> wrapped the corresponding search results. History:
+Prior to this step, you have already taken {step_count} step(s). Below is the interaction history, where <search>...</search> wrapped your past search queries and <information>...</information> wrapped the corresponding search results. History:
 {memory_context}
 
 Now it's your turn to respond for the current step.
@@ -45,8 +45,6 @@ You should first conduct a reasoning process. After completing your reasoning, c
 SEARCH_TEMPLATE_NO_HIS_OCR = """<image>
 You are an expert agent tasked with answering the given question step-by-step.
 Your question: {task_description}
-
-The current image is empty as you have not called a search engine yet. The image will be used to show the retrieved information once you call the search engine.
 
 Now it's your turn to respond for the current step.
 You should first conduct a reasoning process. After completing your reasoning, choose only one of the following actions (do not perform both):
@@ -70,19 +68,17 @@ You should first conduct a reasoning process. After completing your reasoning, c
 """
 
 SEARCH_COMPRESSION_TEMPLATE_NO_HIS = """
-Additionally, select an image compression factor (>1.0) for the next image. Higher compression lowers cost, but too much compression harms image quality. Thus, you should select the highest compression factor that preserves essential information for reliable task completion. You must provide the compression factor within <compression> </compression> tags (e.g., <compression>1.2</compression>).
-
-Output format (exactly 3 parts in this order):
-1. Reasoning: state what you found in the image and whether it is sufficient.
+Additionally, select an image compression factor between 1.0 and 2.0 for the next image. Higher compression lowers cost, but too much compression harms image quality. You must output the selected value within <compression> </compression> tags (e.g., <compression>1.1</compression>).
+Output format:
+1. Reasoning: state what you found in the image.
 2. <search>...</search> or <answer>...</answer>
 3. <compression>...</compression>
 """
 
 SEARCH_COMPRESSION_TEMPLATE = """
-Additionally, select an image compression factor (>1.0) for the next image (note: the provided image uses a compression factor of {compression_factor}). Higher compression lowers cost, but too much compression harms image quality. Thus, you should select the highest compression factor that preserves essential information for reliable task completion. You must provide the next compression factor within <compression> </compression> tags (e.g., <compression>1.2</compression>).
-
-Output format (exactly 3 parts in this order):
-1. Reasoning: state what you found in the image and whether it is sufficient.
+Additionally, select an image compression factor between 1.0 and 2.0 for the next image. Higher compression lowers cost, but too much compression harms image quality. You must output the selected value within <compression> </compression> tags (e.g., <compression>1.1</compression>).
+Output format:
+1. Reasoning: state what you found in the image.
 2. <search>...</search> or <answer>...</answer>
 3. <compression>...</compression>
 """

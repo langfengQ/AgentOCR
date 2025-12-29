@@ -33,6 +33,7 @@ class EpisodeRewardManager_Compression:
         compression_factor_max: float = 3.0,
         compression_reward_coef: float = 0.01,
         compression_failure_penalty_coef: float = 0.0,
+        compression_reward_every_n_steps: int = 1,
         **kwargs,
     ) -> None:
         self.tokenizer = tokenizer
@@ -43,14 +44,27 @@ class EpisodeRewardManager_Compression:
         self.compression_factor_max = compression_factor_max
         self.compression_reward_coef = compression_reward_coef
         self.compression_failure_penalty_coef = compression_failure_penalty_coef
+        self.compression_reward_every_n_steps = compression_reward_every_n_steps
         assert self.compression_factor_max > 1.0, "compression_factor_max must be greater than 1.0"
         assert self.compression_reward_coef >= 0.0, "compression_reward_coef must be non-negative"
         assert self.compression_failure_penalty_coef >= 0.0, "compression_failure_penalty_coef must be non-negative"
+        assert self.compression_reward_every_n_steps >= 1, "compression_reward_every_n_steps must be at least 1"
 
-        print(f"Using EpisodeRewardManager_Compression with compression_factor_max: {self.compression_factor_max}, compression_reward_coef: {self.compression_reward_coef}, compression_failure_penalty_coef: {self.compression_failure_penalty_coef}")
+        # Track global steps for compression reward activation
+        self.global_steps = 0
+
+        print(f"Using EpisodeRewardManager_Compression with compression_factor_max: {self.compression_factor_max}, compression_reward_coef: {self.compression_reward_coef}, compression_failure_penalty_coef: {self.compression_failure_penalty_coef}, compression_reward_every_n_steps: {self.compression_reward_every_n_steps}")
         
     def __call__(self, data: DataProto, return_dict=False):
-        """We will expand this function gradually based on the available datasets"""
+        """We will expand this function gradually based on the available datasets
+        
+        Args:
+            data: DataProto containing batch data
+            return_dict: Whether to return a dictionary with additional info
+        """
+        # Check if compression reward should be applied (every n steps)
+        self.global_steps += 1
+        apply_compression_reward = self.global_steps % self.compression_reward_every_n_steps == 0
 
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if "rm_scores" in data.batch.keys():
@@ -62,6 +76,7 @@ class EpisodeRewardManager_Compression:
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
 
         already_print_data_sources = {}
+        compression_rewards = []  # Collect all compression_reward values for statistics
 
         for i in range(len(data)):
             data_item = data[i]  # DataProtoItem
@@ -98,12 +113,20 @@ class EpisodeRewardManager_Compression:
             is_success = data_item.non_tensor_batch['is_success']
             compression_factor = data_item.non_tensor_batch['compression_factor']
 
-            if is_success:
-                # compression_reward = (compression_factor - 1.0) * self.compression_reward_coef if compression_factor < self.compression_factor_max else 0.0
-                compression_reward = np.log(compression_factor) * self.compression_reward_coef if compression_factor < self.compression_factor_max else 0.0
+            # Only apply compression reward every n steps
+            if apply_compression_reward:
+                if is_success:
+                    # compression_reward = (compression_factor - 1.0) * self.compression_reward_coef if compression_factor < self.compression_factor_max else 0.0
+                    compression_reward = np.log(compression_factor) * self.compression_reward_coef
+                else:
+                    # Failed trajectories: optional compression-based penalty.
+                    compression_reward = - np.log(compression_factor) * self.compression_failure_penalty_coef
             else:
-                # Failed trajectories: optional compression-based penalty.
-                compression_reward = -(compression_factor - 1.0) * self.compression_failure_penalty_coef
+                # Not at the n-th step, compression reward is 0
+                compression_reward = 0.0
+
+            # Collect compression_reward for statistics
+            compression_rewards.append(compression_reward)
 
             # if is_success and episode_rewards <= 0:
             #     print("Miss Match C1")
@@ -124,6 +147,16 @@ class EpisodeRewardManager_Compression:
                 print(f"[{data_source}][prompt]", prompt_str)
                 print(f"[{data_source}][response]", response_str)
                 print(f"[{data_source}][score]", score)
+
+        # Calculate compression_reward statistics (only when compression reward is applied)
+        if compression_rewards:
+            compression_rewards_array = np.array(compression_rewards)
+            total_count = len(compression_rewards_array)
+            positive_count = np.sum(compression_rewards_array > 0)
+            negative_count = np.sum(compression_rewards_array < 0)
+            zero_count = np.sum(compression_rewards_array == 0)
+            
+            print(f"compression_reward_positive_ratio: {(positive_count / total_count).item()}, compression_reward_negative_ratio: {(negative_count / total_count).item()}, compression_reward_zero_ratio: {(zero_count / total_count).item()}")
 
         if return_dict:
             return {
