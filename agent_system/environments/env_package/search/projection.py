@@ -69,6 +69,7 @@ def search_projection(actions: List[str], check_compression_tag: bool = False) -
     re_answer_tag = re.compile(r"<answer>", re.IGNORECASE)
 
     for i, action in enumerate(actions):
+        is_anwser = False
         original_action = action  # Keep untouched for validity checks
         trimmed_action = _postprocess_action(action)
 
@@ -80,6 +81,7 @@ def search_projection(actions: List[str], check_compression_tag: bool = False) -
             m = re_answer_block.search(trimmed_action)
             if m:
                 results.append(f"<answer>{m.group(1).strip()}</answer>")
+                is_anwser = True
             else:
                 results.append("")
                 valids[i] = 0
@@ -98,33 +100,36 @@ def search_projection(actions: List[str], check_compression_tag: bool = False) -
 
         # Extract compression factor from <compression>...</compression>
         if check_compression_tag:
-            comp_start_tag = "<compression>"
-            comp_end_tag = "</compression>"
-            comp_start_idx = original_action.lower().find(comp_start_tag)
-            comp_end_idx = original_action.lower().find(comp_end_tag)
-            
-            if comp_start_idx != -1 and comp_end_idx != -1:
-                try:
-                    compression_str = original_action[comp_start_idx + len(comp_start_tag):comp_end_idx].strip()
-                    compression_value = float(compression_str)
-                    # Clamp to [1.0, 2.0] (higher values = more compression)
-                    if math.isnan(compression_value) or not math.isfinite(compression_value):
-                        compression_value = 1.0
+            if is_anwser:
+                compression_factors[i] = 1.0
+            else:
+                comp_start_tag = "<compression>"
+                comp_end_tag = "</compression>"
+                comp_start_idx = original_action.lower().find(comp_start_tag)
+                comp_end_idx = original_action.lower().find(comp_end_tag)
+                
+                if comp_start_idx != -1 and comp_end_idx != -1:
+                    try:
+                        compression_str = original_action[comp_start_idx + len(comp_start_tag):comp_end_idx].strip()
+                        compression_value = float(compression_str)
+                        # Clamp to [1.0, 2.0] (higher values = more compression)
+                        if math.isnan(compression_value) or not math.isfinite(compression_value):
+                            compression_value = 1.0
+                            # valids[i] = 0
+                        elif compression_value < 1.0:
+                            compression_value = 1.0
+                            # valids[i] = 0
+                        elif compression_value > 2.0:
+                            compression_value = 2.0
+                            # valids[i] = 0
+                        compression_factors[i] = compression_value
+                    except:
+                        # If parsing fails, default to max compression
+                        compression_factors[i] = 1.0
                         # valids[i] = 0
-                    elif compression_value < 1.0:
-                        compression_value = 1.0
-                        # valids[i] = 0
-                    elif compression_value > 2.0:
-                        compression_value = 2.0
-                        # valids[i] = 0
-                    compression_factors[i] = compression_value
-                except:
-                    # If parsing fails, default to max compression
+                else:
                     compression_factors[i] = 1.0
                     # valids[i] = 0
-            else:
-                compression_factors[i] = 1.0
-                # valids[i] = 0
 
     if check_compression_tag:
         return results, valids, compression_factors

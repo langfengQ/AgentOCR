@@ -92,7 +92,7 @@ class SimpleMemory(BaseMemory):
                 obs = rec[obs_key]
                 lines.append(
                     # remove \n
-                    f"[Observation {step_num}]: {obs.replace('\n', ' ')}\n[Action {step_num}]: {act.replace('\n', ' ')}"
+                    f"[Observation]: {obs.replace('\n', ' ')} [Action]: {act.replace('\n', ' ')}"
                 )
 
             memory_contexts.append("\n".join(lines))
@@ -176,7 +176,7 @@ class SearchMemory(BaseMemory):
                 act = rec[action_key]
                 obs = rec[obs_key]
                 lines.append(
-                    f"Step {step_num}:{act.replace('\n', ' ')} {obs.replace('\n', ' ')}\n"
+                    f"{act.replace('\n', ' ')} {obs.replace('\n', ' ')}\n"
                 )
 
             memory_contexts.append("\n".join(lines))

@@ -14,6 +14,6 @@
 # limitations under the License.
 
 from .base import BaseOCRTool
-from .ocrtool import OCRTool
+from .ocrtool import OCRTool, SegmentCache, split_into_segments
 
-__all__ = ['BaseOCRTool', 'OCRTool']
+__all__ = ['BaseOCRTool', 'OCRTool', 'SegmentCache', 'split_into_segments']

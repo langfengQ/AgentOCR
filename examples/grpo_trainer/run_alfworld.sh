@@ -7,9 +7,10 @@ export CUDA_VISIBLE_DEVICES=6,7
 # Observation 1, 2, 3, ... 50 are highlighted in blue (0,0,255)
 # Action 1, 2, 3, ... 50 are highlighted in red (255,0,0)
 ################
-obs_configs=$(for i in {1..50}; do echo -n "[Observation $i]:0,0,255;"; done)
-action_configs=$(for i in {1..50}; do echo -n "[Action $i]:255,0,0;"; done)
-export HIGHLIGHT_CONFIGS="${obs_configs}${action_configs}"
+# obs_configs=$(for i in {1..50}; do echo -n "[Observation $i]:0,0,255;"; done)
+# action_configs=$(for i in {1..50}; do echo -n "[Action $i]:255,0,0;"; done)
+# export HIGHLIGHT_CONFIGS="${obs_configs}${action_configs}"
+export HIGHLIGHT_CONFIGS='[Observation]:0,0,255;[Action]:255,0,0'
 
 
 use_ocr=True
@@ -17,7 +18,7 @@ ocr_use_parallel=True
 ocr_max_workers=64
 
 ocr_font_size=10
-ocr_max_width=336
+ocr_max_width=392
 ocr_max_height=4096
 
 # Compact mode settings (replace newlines with colored symbols)

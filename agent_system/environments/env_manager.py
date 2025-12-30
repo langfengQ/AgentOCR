@@ -111,7 +111,7 @@ class SearchEnvironmentManager(EnvironmentManagerBase):
         for i, info in enumerate(infos):
             info["is_action_valid"] = to_numpy(valids[i])
             if compression_factors is not None:
-                info['compression_factor'] = compression_factors[i]
+                info['compression_factor'] = compression_factors[i] if self.active_masks[i] else 1.0
 
         rewards = to_numpy(rewards)
         dones = to_numpy(dones)
@@ -266,7 +266,7 @@ class AlfWorldEnvironmentManager(EnvironmentManagerBase):
         for i, info in enumerate(infos):
             info['is_action_valid'] = to_numpy(valids[i])
             if compression_factors is not None:
-                info['compression_factor'] = compression_factors[i]
+                info['compression_factor'] = compression_factors[i] if self.active_masks[i] else 1.0
 
         next_observations = {'text': full_text_obs, 'image': trajectory_images, 'anchor': text_obs}
         dones = to_numpy(dones)
