@@ -30,8 +30,16 @@ from .utils import (
     get_font_metrics,
     _get_cached_font,
     preprocess_trajectory_contexts,
-    COMPACT_NEWLINE_SYMBOL
+    COMPACT_NEWLINE_SYMBOL,
+    PerformanceStats,
+    PerformanceMonitor,
 )
+import time
+
+# Cache mode constants
+CACHE_MODE_NONE = "none"              # Variant 1: No cache at all
+CACHE_MODE_NAIVE = "naive"            # Variant 2: Naive cache (render new obs and concatenate)
+CACHE_MODE_SEGMENT = "segment"        # Variant 3: Segment cache (current implementation)
 
 
 class SegmentCache:
@@ -206,9 +214,13 @@ class OCRTool(BaseOCRTool):
         use_precise: bool = True,
         fast_mode: bool = True,
         enable_cache: bool = True,
+        cache_mode: str = "none",
         compact_mode: bool = False,
         compact_symbol: str = COMPACT_NEWLINE_SYMBOL,
         highlight_configs: Optional[List[Dict[str, Any]]] = None,
+        enable_perf_stats: bool = True,
+        auto_save_stats: bool = True,
+        stats_save_dir: str = "logs/ocr_stats",
         **kwargs
     ):
         """
@@ -231,12 +243,16 @@ class OCRTool(BaseOCRTool):
             use_precise: Use precise font measurements for optimal packing (recommended)
             fast_mode: Use fast mode (fixed width) for real-time performance (default True)
             enable_cache: Enable LRU caching of rendered images for speedup (default True)
+            cache_mode: Cache mode to use. Options: "none", "naive", "segment" (default: "segment")
             compact_mode: Enable compact mode (replace newlines with symbols)
             compact_symbol: Symbol to use for newline replacement in compact mode
             highlight_configs: List of dicts specifying text contexts to highlight with colors.
                               To highlight compact_symbol, include it in highlight_configs.
                               Example: [{"context": "Action", "color": [255, 0, 0]}, 
                                        {"context": "⏎", "color": [128, 128, 128]}]
+            enable_perf_stats: Enable performance statistics collection (memory, CPU, time)
+            auto_save_stats: Automatically save stats to file on reset/finish (default True)
+            stats_save_dir: Directory to save stats files (default "logs/ocr_stats")
             **kwargs: Additional parameters passed to trajectory_to_image
         """
         self.enabled = enabled
@@ -254,9 +270,13 @@ class OCRTool(BaseOCRTool):
         self.use_precise = use_precise
         self.fast_mode = fast_mode
         self.enable_cache = enable_cache
+        self.cache_mode = cache_mode if enable_cache else CACHE_MODE_NONE
         self.compact_mode = compact_mode
         self.compact_symbol = compact_symbol
         self.highlight_configs = highlight_configs
+        self.enable_perf_stats = enable_perf_stats
+        self.auto_save_stats = kwargs.pop('auto_save_stats', auto_save_stats)
+        self.stats_save_dir = kwargs.pop('stats_save_dir', stats_save_dir)
         self.kwargs = kwargs
         # Initialize folder for saving trajectory images
         self.trajectory_images_dir = os.path.join(os.getcwd(), "logs/trajectory_images")
@@ -294,6 +314,19 @@ class OCRTool(BaseOCRTool):
             'cached_lines_reused': 0,  # Total number of cached lines reused
             'lines_rendered': 0,     # Total number of lines actually rendered
         }
+        
+        # Performance statistics
+        self._perf_stats = PerformanceStats() if enable_perf_stats else None
+        self._perf_monitor = PerformanceMonitor(self._perf_stats) if enable_perf_stats else None
+        
+        # Set up real-time JSON saving if auto_save_stats is enabled
+        self._current_json_path = None
+        if enable_perf_stats and self.auto_save_stats:
+            self._setup_realtime_json()
+        
+        # Naive cache: stores historical images for each environment
+        # Format: {env_idx: {'history_image': np.ndarray, 'last_context': str}}
+        self._naive_cache = {} if enable_cache and cache_mode == CACHE_MODE_NAIVE else None
     
     def convert(
         self,
@@ -343,14 +376,24 @@ class OCRTool(BaseOCRTool):
         if not trajectory_texts:
             return []
         
+        # Start batch timing if performance monitoring is enabled
+        if self._perf_monitor:
+            self._perf_monitor.start_batch()
+        
         # Merge default config with override parameters
         config = self._get_config(**override_kwargs)
         
         # Use parallel processing for batches larger than 1 if enabled
         if self.use_parallel and len(trajectory_texts) > 1:
-            return self._convert_batch_parallel(trajectory_texts, config)
+            results = self._convert_batch_parallel(trajectory_texts, config)
         else:
-            return [self._convert_single(text, config) for text in trajectory_texts]
+            results = [self._convert_single(text, config) for text in trajectory_texts]
+        
+        # End batch timing if performance monitoring is enabled
+        if self._perf_monitor:
+            self._perf_monitor.end_batch()
+        
+        return results
     
     def _convert_batch_parallel(
         self,
@@ -615,11 +658,19 @@ class OCRTool(BaseOCRTool):
             return None
         return self._segment_caches.get(env_idx)
     
-    def reset(self):
+    def reset(self, save_stats: bool = True):
         """
         Reset the OCR tool state, clearing all caches and statistics.
         This is useful when starting a new episode or batch of episodes.
+        
+        Args:
+            save_stats: Whether to save stats before resetting (default True if auto_save_stats is enabled)
         """
+        # Auto-save stats before reset if enabled and there are stats to save
+        if save_stats and self.auto_save_stats and self._perf_stats is not None:
+            if len(self._perf_stats.step_stats) > 0:
+                self._auto_save_stats()
+        
         # Clear master images cache
         if self._master_images is not None:
             self._master_images.clear()
@@ -632,8 +683,13 @@ class OCRTool(BaseOCRTool):
         if self._segment_caches is not None:
             self._segment_caches.clear()
         
+        # Clear naive cache
+        if self._naive_cache is not None:
+            self._naive_cache.clear()
+        
         # Reset cache statistics
         self._cache_stats = {'hits': 0, 'misses': 0, 'total': 0}
+        self._last_printed_cache_batch = 0
         
         # Reset segment cache statistics
         self._segment_cache_stats = {
@@ -654,6 +710,43 @@ class OCRTool(BaseOCRTool):
             'cached_lines_reused': 0,
             'lines_rendered': 0,
         }
+        
+        # Reset performance statistics
+        if self._perf_stats is not None:
+            self._perf_stats.reset()
+        
+        # Re-setup JSON saving if auto_save_stats is enabled
+        if self._perf_stats is not None and self.auto_save_stats:
+            self._setup_realtime_json()
+    
+    def get_cache_mode(self) -> str:
+        """Get current cache mode."""
+        return self.cache_mode
+    
+    def set_cache_mode(self, cache_mode: str):
+        """
+        Set the cache mode.
+        
+        Args:
+            cache_mode: Cache mode string. Must be one of: "none", "naive", "segment"
+        """
+        if cache_mode not in [CACHE_MODE_NONE, CACHE_MODE_NAIVE, CACHE_MODE_SEGMENT]:
+            raise ValueError(f"Invalid cache_mode: {cache_mode}. "
+                           f"Must be one of: {CACHE_MODE_NONE}, {CACHE_MODE_NAIVE}, {CACHE_MODE_SEGMENT}")
+        
+        self.cache_mode = cache_mode
+        
+        # Initialize appropriate cache structures
+        if cache_mode == CACHE_MODE_NAIVE:
+            if self._naive_cache is None:
+                self._naive_cache = {}
+        elif cache_mode == CACHE_MODE_SEGMENT:
+            if self._segment_caches is None:
+                self._segment_caches = {}
+        
+        # Update JSON filepath if performance monitoring is enabled
+        if self._perf_monitor and self.auto_save_stats:
+            self._setup_realtime_json()
     
     def _find_matching_segments(self, context: str, env_idx: int) -> Optional[Tuple[List[str], List[Tuple[int, int]], List[Dict], int]]:
         """
@@ -789,6 +882,8 @@ class OCRTool(BaseOCRTool):
             if not context:
                 # Empty context, return blank
                 self._cache_stats['misses'] += 1
+                if self._perf_monitor:
+                    self._perf_monitor.record_cache_miss()
                 image_arrays.append(self._get_blank_array(**override_kwargs))
                 continue
             
@@ -798,16 +893,24 @@ class OCRTool(BaseOCRTool):
             
             segment_cache = self._segment_caches[real_env_idx]
             
-            # Step 1: Split history into segments
+            # Step 1: Split history into segments (time this)
             # Split(h_t) = (l_1, ..., l_K)
+            preprocess_start = time.perf_counter()
             segments = split_into_segments(context)
+            preprocess_elapsed = time.perf_counter() - preprocess_start
+            
+            if self._perf_monitor:
+                self._perf_monitor.stats.total_text_preprocess_time += preprocess_elapsed
             
             if not segments:
                 self._cache_stats['misses'] += 1
+                if self._perf_monitor:
+                    self._perf_monitor.record_cache_miss()
                 image_arrays.append(self._get_blank_array(**override_kwargs))
                 continue
             
-            # Step 2: For each segment, lookup cache or render
+            # Step 2: For each segment, lookup cache or render (time entire loop)
+            cache_loop_start = time.perf_counter()
             segment_images: List[np.ndarray] = []
             local_hits = 0
             local_misses = 0
@@ -816,7 +919,11 @@ class OCRTool(BaseOCRTool):
                 self._segment_cache_stats['total_segments'] += 1
                 
                 # Cache lookup: C[k(l_i)]
-                cached_img = segment_cache.lookup(segment_text)
+                if self._perf_monitor:
+                    with self._perf_monitor.time_cache_lookup():
+                        cached_img = segment_cache.lookup(segment_text)
+                else:
+                    cached_img = segment_cache.lookup(segment_text)
                 
                 if cached_img is not None:
                     # Cache hit! Reuse cached segment image
@@ -824,17 +931,34 @@ class OCRTool(BaseOCRTool):
                     local_hits += 1
                     self._segment_cache_stats['cache_hits'] += 1
                     self._segment_cache_stats['segments_reused'] += 1
+                    if self._perf_monitor:
+                        self._perf_monitor.record_cache_hit()
                 else:
                     # Cache miss - render segment with R(l_i; psi)
-                    rendered_img = self._render_segment(segment_text, **override_kwargs)
+                    if self._perf_monitor:
+                        with self._perf_monitor.time_render():
+                            rendered_img = self._render_segment(segment_text, **override_kwargs)
+                    else:
+                        rendered_img = self._render_segment(segment_text, **override_kwargs)
                     
                     # Insert into cache: C[k(l_i)] <- I(l_i)
-                    segment_cache.insert(segment_text, rendered_img)
+                    if self._perf_monitor:
+                        with self._perf_monitor.time_cache_update():
+                            segment_cache.insert(segment_text, rendered_img)
+                    else:
+                        segment_cache.insert(segment_text, rendered_img)
                     
                     segment_images.append(rendered_img)
                     local_misses += 1
                     self._segment_cache_stats['cache_misses'] += 1
                     self._segment_cache_stats['segments_rendered'] += 1
+                    if self._perf_monitor:
+                        self._perf_monitor.record_cache_miss()
+            
+            # Record cache loop time
+            cache_loop_elapsed = time.perf_counter() - cache_loop_start
+            if self._perf_monitor:
+                self._perf_monitor.stats.total_cache_loop_time += cache_loop_elapsed
             
             # Update overall cache stats based on segment-level results
             # If any segments were reused, count as partial hit
@@ -843,19 +967,34 @@ class OCRTool(BaseOCRTool):
             else:
                 self._cache_stats['misses'] += 1
             
-            # Step 3: Assemble full image by stacking segment images
+            # Step 3: Assemble full image by stacking segment images (time this)
             # I_t = Stack(I(l_i))_{i=1}^{K}
+            assembly_start = time.perf_counter()
             if len(segment_images) == 1:
                 assembled_image = segment_images[0].copy()
             else:
                 assembled_image = np.vstack(segment_images)
+            assembly_elapsed = time.perf_counter() - assembly_start
             
+            if self._perf_monitor:
+                self._perf_monitor.stats.total_image_assembly_time += assembly_elapsed
+            
+            # Append to result list (time this)
+            append_start = time.perf_counter()
             image_arrays.append(assembled_image)
+            append_elapsed = time.perf_counter() - append_start
+            
+            if self._perf_monitor:
+                self._perf_monitor.stats.total_array_append_time += append_elapsed
             
             # Accumulate batch-level stats
             batch_total_segments += len(segments)
             batch_total_hits += local_hits
             batch_total_misses += local_misses
+        
+        # Update cache memory stats
+        if self._perf_monitor:
+            self._perf_monitor.update_segment_cache_memory(self._segment_caches)
         
         # Print batch-level cache statistics (once per batch)
         if batch_total_segments > 0:
@@ -1207,14 +1346,64 @@ class OCRTool(BaseOCRTool):
     
     
     def _print_cache_stats(self):
-        """Print cache hit rate statistics."""
+        """Print cache hit rate statistics and performance stats."""
         stats = self._cache_stats
         total = stats['total']
         hits = stats['hits']
         misses = stats['misses']
         hit_rate = (hits / total * 100) if total > 0 else 0
         
-        print(f"[OCR Cache] Total: {total}, Hits: {hits}, Misses: {misses}, Hit Rate: {hit_rate:.1f}%")
+        print(f"[OCR Cache] Mode: {self.cache_mode} | Total: {total}, Hits: {hits}, Misses: {misses}, Hit Rate: {hit_rate:.1f}%")
+        
+        # Print performance stats if enabled
+        if self._perf_stats is not None:
+            self._print_perf_stats_inline()
+    
+    def _print_perf_stats_inline(self):
+        """Print performance statistics in a compact inline format."""
+        if self._perf_stats is None:
+            return
+        
+        stats = self._perf_stats
+        
+        # Time stats
+        avg_render_ms = (stats.total_render_time / max(1, stats.render_count)) * 1000
+        total_render_s = stats.total_render_time
+        avg_batch_ms = (sum(stats.batch_times) / max(1, len(stats.batch_times))) * 1000
+        
+        # Cache memory stats (OCR cache ONLY)
+        total_cache_mb = stats.total_cache_bytes / (1024 * 1024)
+        peak_cache_mb = stats.peak_cache_bytes / (1024 * 1024)
+        avg_cache_mb = sum(stats.cache_memory_samples) / max(1, len(stats.cache_memory_samples)) / (1024 * 1024)
+        segment_cache_mb = stats.segment_cache_bytes / (1024 * 1024)
+        full_cache_mb = stats.full_image_cache_bytes / (1024 * 1024)
+        compact_cache_mb = stats.compact_cache_bytes / (1024 * 1024)
+        
+        # CPU stats
+        avg_cpu = sum(stats.cpu_percent_samples) / max(1, len(stats.cpu_percent_samples))
+        
+        # Process memory (reference)
+        process_mb = stats.process_memory_bytes / (1024 * 1024)
+        peak_process_mb = stats.peak_process_memory_bytes / (1024 * 1024)
+        avg_process_mb = sum(stats.process_memory_samples) / max(1, len(stats.process_memory_samples)) / (1024 * 1024)
+        
+        print(f"[OCR Perf] Render: {stats.render_count} calls, total {total_render_s:.2f}s, avg {avg_render_ms:.2f}ms | "
+              f"Batch: avg {avg_batch_ms:.2f}ms")
+        print(f"[OCR Perf] Cache Hit/Miss: {stats.cache_hit_count}/{stats.cache_miss_count}")
+        
+        # Print cache memory based on mode
+        if stats.segment_cache_bytes > 0:
+            print(f"[OCR Cache Memory] Segment: {segment_cache_mb:.2f}MB "
+                  f"({stats.segment_count} segments)")
+        if stats.full_image_cache_bytes > 0:
+            print(f"[OCR Cache Memory] Full Image: {full_cache_mb:.2f}MB "
+                  f"({stats.full_image_count} cached images)")
+        if stats.compact_cache_bytes > 0:
+            print(f"[OCR Cache Memory] Compact: {compact_cache_mb:.2f}MB")
+        
+        print(f"[OCR Cache Memory] Total: cur {total_cache_mb:.2f}MB, avg {avg_cache_mb:.2f}MB, peak {peak_cache_mb:.2f}MB")
+        print(f"[OCR Process Memory] cur {process_mb:.1f}MB, avg {avg_process_mb:.1f}MB, peak {peak_process_mb:.1f}MB | "
+              f"CPU: {avg_cpu:.1f}%")
     
     def _print_batch_segment_cache_stats(
         self,
@@ -1422,6 +1611,299 @@ class OCRTool(BaseOCRTool):
             'line_savings': f'{line_savings:.1f}%'
         }
     
+    def _setup_realtime_json(self):
+        """Set up real-time JSON saving for performance statistics."""
+        import time as time_module
+        
+        os.makedirs(self.stats_save_dir, exist_ok=True)
+        
+        # Generate filename with cache_mode and timestamp
+        timestamp = time_module.strftime("%Y%m%d_%H%M%S")
+        base_name = f"ocr_stats_{self.cache_mode}_{timestamp}"
+        self._current_json_path = os.path.join(self.stats_save_dir, f"{base_name}.jsonl")
+        
+        # Set the JSON filepath in the monitor for real-time saving
+        if self._perf_monitor:
+            self._perf_monitor.set_json_filepath(self._current_json_path, cache_mode=self.cache_mode)
+            print(f"[OCR Stats] Real-time saving to: {self._current_json_path}")
+        else:
+            print(f"[OCR Stats] WARNING: Performance monitor is None! enable_perf_stats={self.enable_perf_stats}")
+    
+    def _auto_save_stats(self):
+        """Print final summary (JSON is already saved in real-time)."""
+        if self._perf_stats is None or len(self._perf_stats.step_stats) == 0:
+            return
+        
+        if self._current_json_path:
+            print(f"[OCR Stats] Completed saving to: {self._current_json_path}")
+            print(f"[OCR Stats] Total {len(self._perf_stats.step_stats)} steps recorded")
+    
+    def finish(self):
+        """
+        Finish OCR processing and save stats.
+        Call this at the end of training/evaluation to ensure stats are saved.
+        """
+        if self.auto_save_stats and self._perf_stats is not None:
+            if len(self._perf_stats.step_stats) > 0:
+                self._auto_save_stats()
+    
+    def _convert_no_cache(
+        self,
+        trajectory_contexts: List[str],
+        current_steps: List[int],
+        env_indices: List[int],
+        batch_size: int,
+        **override_kwargs
+    ) -> List[np.ndarray]:
+        """
+        Variant 1: Convert trajectory texts to images WITHOUT any caching.
+        Every context is rendered from scratch every time.
+        
+        This is the baseline for ablation study - measures pure rendering cost.
+        
+        Args:
+            trajectory_contexts: List of trajectory text strings
+            current_steps: List of current step numbers (unused, for API consistency)
+            env_indices: List of environment indices (unused, for API consistency)
+            batch_size: Batch size (for stats printing)
+            **override_kwargs: Override configuration parameters
+        
+        Returns:
+            List of numpy arrays representing the images
+        """
+        image_arrays = []
+        
+        for context in trajectory_contexts:
+            self._cache_stats['total'] += 1
+            self._cache_stats['misses'] += 1  # Always a "miss" since no cache
+            if self._perf_monitor:
+                self._perf_monitor.record_cache_miss()
+            
+            context = context.strip() if context else ""
+            if not context:
+                image_arrays.append(self._get_blank_array(**override_kwargs))
+                continue
+            
+            # Render from scratch with performance tracking
+            render_start = time.perf_counter()
+            img = self.convert(context, **override_kwargs)
+            render_elapsed = time.perf_counter() - render_start
+            
+            if self._perf_monitor:
+                self._perf_monitor.record_render(render_elapsed)
+            
+            # Convert PIL to numpy array (time this)
+            conversion_start = time.perf_counter()
+            img_array = np.array(img) if img is not None else self._get_blank_array(**override_kwargs)
+            conversion_elapsed = time.perf_counter() - conversion_start
+            
+            if self._perf_monitor:
+                self._perf_monitor.stats.total_array_conversion_time += conversion_elapsed
+            
+            # Append to result list (time this)
+            append_start = time.perf_counter()
+            image_arrays.append(img_array)
+            append_elapsed = time.perf_counter() - append_start
+            
+            if self._perf_monitor:
+                self._perf_monitor.stats.total_array_append_time += append_elapsed
+        
+        # Print stats when we've processed a new batch
+        if batch_size > 0:
+            current_batch = self._cache_stats['total'] // batch_size
+            if current_batch > self._last_printed_cache_batch:
+                self._last_printed_cache_batch = current_batch
+                self._print_cache_stats()
+        
+        return image_arrays
+    
+    def _convert_naive_cache(
+        self,
+        trajectory_contexts: List[str],
+        current_steps: List[int],
+        env_indices: List[int],
+        batch_size: int,
+        **override_kwargs
+    ) -> List[np.ndarray]:
+        """
+        Variant 2: Naive cache - render new observations and directly concatenate them
+        onto existing historical images.
+        
+        This approach:
+        - Stores the full historical image for each environment
+        - For each new observation, renders it and concatenates vertically
+        - No segment-level matching or reuse
+        
+        Args:
+            trajectory_contexts: List of trajectory text strings
+            current_steps: List of current step numbers for each environment
+            env_indices: List of real environment indices
+            batch_size: Batch size (for stats printing)
+            **override_kwargs: Override configuration parameters
+        
+        Returns:
+            List of numpy arrays representing the images
+        """
+        if self._naive_cache is None:
+            self._naive_cache = {}
+        
+        image_arrays = []
+        
+        for real_env_idx, context, current_step in zip(env_indices, trajectory_contexts, current_steps):
+            self._cache_stats['total'] += 1
+            
+            context = context.strip() if context else ""
+            if not context:
+                # Empty context, return blank or cached image
+                if real_env_idx in self._naive_cache:
+                    image_arrays.append(self._naive_cache[real_env_idx]['history_image'].copy())
+                else:
+                    image_arrays.append(self._get_blank_array(**override_kwargs))
+                self._cache_stats['misses'] += 1
+                if self._perf_monitor:
+                    self._perf_monitor.record_cache_miss()
+                continue
+            
+            # Split context into lines to get the new observation (time this)
+            preprocess_start = time.perf_counter()
+            lines = [line.strip() for line in context.split('\n') if line.strip()]
+            preprocess_elapsed = time.perf_counter() - preprocess_start
+            
+            if self._perf_monitor:
+                self._perf_monitor.stats.total_text_preprocess_time += preprocess_elapsed
+            
+            if not lines:
+                if real_env_idx in self._naive_cache:
+                    image_arrays.append(self._naive_cache[real_env_idx]['history_image'].copy())
+                else:
+                    image_arrays.append(self._get_blank_array(**override_kwargs))
+                self._cache_stats['misses'] += 1
+                if self._perf_monitor:
+                    self._perf_monitor.record_cache_miss()
+                continue
+            
+            # Get the last line as the new observation
+            new_obs_text = lines[-1]
+            
+            # Check if we have cached history for this environment
+            if real_env_idx in self._naive_cache:
+                # Cache hit - reuse existing history image
+                self._cache_stats['hits'] += 1
+                if self._perf_monitor:
+                    with self._perf_monitor.time_cache_lookup():
+                        pass
+                    self._perf_monitor.record_cache_hit()
+                
+                cached_history = self._naive_cache[real_env_idx]['history_image']
+                
+                # Render only the new observation
+                render_start = time.perf_counter()
+                new_obs_img = self.convert(new_obs_text, **override_kwargs)
+                render_elapsed = time.perf_counter() - render_start
+                
+                if self._perf_monitor:
+                    self._perf_monitor.record_render(render_elapsed)
+                
+                # Convert PIL image to numpy array (time this separately)
+                conversion_start = time.perf_counter()
+                new_obs_array = np.array(new_obs_img) if new_obs_img is not None else self._get_blank_array(**override_kwargs)
+                conversion_elapsed = time.perf_counter() - conversion_start
+                
+                if self._perf_monitor:
+                    with self._perf_monitor.time_array_conversion():
+                        pass
+                    self._perf_monitor.stats.total_array_conversion_time += conversion_elapsed
+                
+                # Concatenate new observation onto cached history (image assembly)
+                assembly_start = time.perf_counter()
+                combined_image = np.vstack([cached_history, new_obs_array])
+                assembly_elapsed = time.perf_counter() - assembly_start
+                
+                if self._perf_monitor:
+                    self._perf_monitor.stats.total_image_assembly_time += assembly_elapsed
+                
+                # Update cache
+                update_start = time.perf_counter()
+                self._naive_cache[real_env_idx] = {
+                    'history_image': combined_image,
+                    'last_context': context
+                }
+                update_elapsed = time.perf_counter() - update_start
+                
+                if self._perf_monitor:
+                    self._perf_monitor.stats.total_cache_update_time += update_elapsed
+                
+                # Append to result list (time this separately)
+                append_start = time.perf_counter()
+                image_arrays.append(combined_image)
+                append_elapsed = time.perf_counter() - append_start
+                
+                if self._perf_monitor:
+                    with self._perf_monitor.time_array_append():
+                        pass
+                    self._perf_monitor.stats.total_array_append_time += append_elapsed
+            else:
+                # Cache miss - render full context from scratch
+                self._cache_stats['misses'] += 1
+                if self._perf_monitor:
+                    self._perf_monitor.record_cache_miss()
+                
+                render_start = time.perf_counter()
+                full_img = self.convert(context, **override_kwargs)
+                render_elapsed = time.perf_counter() - render_start
+                
+                if self._perf_monitor:
+                    self._perf_monitor.record_render(render_elapsed)
+                
+                # Convert PIL image to numpy array (time this separately)
+                conversion_start = time.perf_counter()
+                full_array = np.array(full_img) if full_img is not None else self._get_blank_array(**override_kwargs)
+                conversion_elapsed = time.perf_counter() - conversion_start
+                
+                if self._perf_monitor:
+                    with self._perf_monitor.time_array_conversion():
+                        pass
+                    self._perf_monitor.stats.total_array_conversion_time += conversion_elapsed
+                
+                # Store in cache
+                update_start = time.perf_counter()
+                self._naive_cache[real_env_idx] = {
+                    'history_image': full_array.copy(),
+                    'last_context': context
+                }
+                update_elapsed = time.perf_counter() - update_start
+                
+                if self._perf_monitor:
+                    with self._perf_monitor.time_cache_update():
+                        pass
+                    self._perf_monitor.stats.total_cache_update_time += update_elapsed
+                
+                # Append to result list (time this separately)
+                append_start = time.perf_counter()
+                image_arrays.append(full_array)
+                append_elapsed = time.perf_counter() - append_start
+                
+                if self._perf_monitor:
+                    with self._perf_monitor.time_array_append():
+                        pass
+                    self._perf_monitor.stats.total_array_append_time += append_elapsed
+        
+        # Update cache memory stats
+        if self._perf_monitor:
+            total_bytes = sum(data['history_image'].nbytes for data in self._naive_cache.values())
+            self._perf_monitor.stats.full_image_cache_bytes = total_bytes
+            self._perf_monitor.stats.full_image_count = len(self._naive_cache)
+            self._perf_monitor._update_peak_cache()
+        
+        # Print stats when we've processed a new batch
+        if batch_size > 0:
+            current_batch = self._cache_stats['total'] // batch_size
+            if current_batch > self._last_printed_cache_batch:
+                self._last_printed_cache_batch = current_batch
+                self._print_cache_stats()
+        
+        return image_arrays
+    
     def convert_texts_to_images(
         self,
         trajectory_contexts: Optional[List[str]],
@@ -1456,6 +1938,13 @@ class OCRTool(BaseOCRTool):
                 return np.array([]).reshape(0, *self._get_blank_image_shape(**override_kwargs))
             return np.array([])
         
+        # Start batch timing if performance monitoring is enabled
+        if self._perf_monitor:
+            self._perf_monitor.start_batch()
+        
+        # === Batch-level preprocessing (time this) ===
+        preprocess_start = time.perf_counter()
+        
         # Rendering happens without padding and without enforced min height;
         # padding is applied only after optional compression.
         render_kwargs = {**override_kwargs, 'padding': 0, 'min_height': 0}
@@ -1465,6 +1954,9 @@ class OCRTool(BaseOCRTool):
             if batch_size is None:
                 raise ValueError("batch_size must be provided when trajectory_contexts is None or empty")
             image_arrays = self.create_blank_images(batch_size, **override_kwargs)
+            preprocess_elapsed = time.perf_counter() - preprocess_start
+            if self._perf_monitor:
+                self._perf_monitor.stats.total_batch_preprocess_time += preprocess_elapsed
         else:
             trajectory_contexts = preprocess_trajectory_contexts(trajectory_contexts)
             # If active_masks is None, set all to True
@@ -1485,6 +1977,10 @@ class OCRTool(BaseOCRTool):
             active_indices = [i for i, mask in enumerate(active_masks) if mask]
             inactive_indices = [i for i, mask in enumerate(active_masks) if not mask]
             
+            preprocess_elapsed = time.perf_counter() - preprocess_start
+            if self._perf_monitor:
+                self._perf_monitor.stats.total_batch_preprocess_time += preprocess_elapsed
+            
             # Only process active trajectories
             if active_indices:
                 active_contexts = [trajectory_contexts[i] for i in active_indices]
@@ -1502,15 +1998,42 @@ class OCRTool(BaseOCRTool):
                             **render_kwargs
                         )
                     else:
-                        active_image_arrays = self._convert_incremental(
-                            active_contexts, 
-                            active_current_steps,
-                            env_indices=active_indices,
-                            batch_size=batch_size,
-                            **render_kwargs
-                        )
+                        # Route to appropriate cache mode
+                        if self.cache_mode == CACHE_MODE_NONE:
+                            active_image_arrays = self._convert_no_cache(
+                                active_contexts,
+                                active_current_steps,
+                                env_indices=active_indices,
+                                batch_size=batch_size,
+                                **render_kwargs
+                            )
+                        elif self.cache_mode == CACHE_MODE_NAIVE:
+                            active_image_arrays = self._convert_naive_cache(
+                                active_contexts,
+                                active_current_steps,
+                                env_indices=active_indices,
+                                batch_size=batch_size,
+                                **render_kwargs
+                            )
+                        elif self.cache_mode == CACHE_MODE_SEGMENT:
+                            active_image_arrays = self._convert_incremental(
+                                active_contexts, 
+                                active_current_steps,
+                                env_indices=active_indices,
+                                batch_size=batch_size,
+                                **render_kwargs
+                            )
+                        else:
+                            # Fallback to segment cache
+                            active_image_arrays = self._convert_incremental(
+                                active_contexts, 
+                                active_current_steps,
+                                env_indices=active_indices,
+                                batch_size=batch_size,
+                                **render_kwargs
+                            )
                 else:
-                    # Normal rendering mode for active trajectories
+                    # Normal rendering mode for active trajectories (no cache)
                     active_images = self.convert_batch(active_contexts, **render_kwargs)
                     active_image_arrays = []
                     for img in active_images:
@@ -1521,14 +2044,19 @@ class OCRTool(BaseOCRTool):
             else:
                 active_image_arrays = []
             
-            # Reconstruct full array with blanks for inactive entries
+            # Reconstruct full array with blanks for inactive entries (time this as postprocessing)
+            reconstruct_start = time.perf_counter()
             image_arrays = [None] * len(trajectory_contexts)
             for idx, img_array in zip(active_indices, active_image_arrays):
                 image_arrays[idx] = img_array
             for idx in inactive_indices:
                 image_arrays[idx] = blank_array.copy()
+            reconstruct_elapsed = time.perf_counter() - reconstruct_start
+            if self._perf_monitor:
+                self._perf_monitor.stats.total_postprocess_time += reconstruct_elapsed
         
-        # Apply compression if specified
+        # Apply compression if specified (continue postprocessing timing)
+        postprocess_start = time.perf_counter()
         if compression_factor is not None:
             if len(compression_factor) != len(image_arrays):
                 raise ValueError(f"Length of compression_factor ({len(compression_factor)}) must match length of image_arrays ({len(image_arrays)})")
@@ -1555,6 +2083,18 @@ class OCRTool(BaseOCRTool):
         # Save images if requested (save after compression to save disk space)
         if save_img and image_arrays:
             self._save_images(image_arrays, **override_kwargs)
+        
+        # Record remaining postprocessing time (compression + padding + save)
+        postprocess_elapsed = time.perf_counter() - postprocess_start
+        if self._perf_monitor:
+            self._perf_monitor.stats.total_postprocess_time += postprocess_elapsed
+        
+        # End batch timing if performance monitoring is enabled
+        # This will trigger JSON file saving if auto_save_stats is enabled
+        if self._perf_monitor:
+            # Use current_steps[0] as step number if available, otherwise use -1 (auto-increment)
+            step = current_steps[0] if current_steps and len(current_steps) > 0 else -1
+            self._perf_monitor.end_batch(step=step)
         
         return image_arrays
     
