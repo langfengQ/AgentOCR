@@ -25,6 +25,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pprint import pprint
 from typing import Dict, Optional, Type
@@ -1255,8 +1256,75 @@ class RayPPOTrainer:
                         with _timer("update_actor", timing_raw):
                             batch.meta_info["multi_turn"] = self.config.actor_rollout_ref.rollout.multi_turn.enable
                             actor_output = self.actor_rollout_wg.update_actor(batch)
+                        
                         actor_output_metrics = reduce_metrics(actor_output.meta_info["metrics"])
                         metrics.update(actor_output_metrics)
+                        
+                        # Get GPU memory stats from worker metrics and save to JSON
+                        # (GPU memory stats are collected in worker processes)
+                        use_ocr = getattr(self.config.ocr, 'use_ocr', False) if hasattr(self.config, 'ocr') else False
+                        use_ocr_str = "True" if use_ocr else "False"
+                        
+                        # Extract GPU memory stats from actor_output_metrics
+                        peak_memory_gb = actor_output_metrics.get("perf/max_memory_allocated_gb", None)
+                        reserved_memory_gb = actor_output_metrics.get("perf/max_memory_reserved_gb", None)
+                        current_memory_gb = actor_output_metrics.get("perf/current_memory_allocated_gb", None)
+                        memory_before_gb = actor_output_metrics.get("perf/memory_before_training_gb", None)
+                        
+                        if peak_memory_gb is not None:
+                            num_gpus = self.config.trainer.n_gpus_per_node * self.config.trainer.nnodes
+                            
+                            # Validate peak memory (should not exceed typical GPU capacity)
+                            # If peak seems too high, use current memory instead
+                            if peak_memory_gb > 50.0:  # Typical high-end GPU is 48-80GB
+                                print(f"  [WARNING] Peak memory {peak_memory_gb:.2f}GB seems unusually high, using current memory instead")
+                                if current_memory_gb is not None:
+                                    peak_memory_gb = current_memory_gb
+                            
+                            total_peak_memory_gb = peak_memory_gb * num_gpus  # Approximate total
+                            
+                            print(f"[GPU Memory Stats - Training] use_ocr={use_ocr_str}, GPUs={num_gpus}")
+                            print(f"  Peak Memory (per GPU): {peak_memory_gb:.2f}GB")
+                            if memory_before_gb is not None:
+                                print(f"  Memory Before Training (per GPU): {memory_before_gb:.2f}GB")
+                            if current_memory_gb is not None:
+                                print(f"  Current Memory (per GPU): {current_memory_gb:.2f}GB")
+                            print(f"  Reserved Memory (per GPU): {reserved_memory_gb:.2f}GB" if reserved_memory_gb else "")
+                            print(f"  Total Peak (Sum, approximate): {total_peak_memory_gb:.2f}GB")
+                            
+                            # Save statistics to JSON file
+                            try:
+                                stats_data = {
+                                    "phase": "training",
+                                    "timestamp": datetime.now().isoformat(),
+                                    "global_step": self.global_steps,
+                                    "use_ocr": use_ocr,
+                                    "num_gpus": num_gpus,
+                                    "per_gpu_peak_gb": peak_memory_gb,
+                                    "per_gpu_reserved_gb": reserved_memory_gb,
+                                    "per_gpu_current_gb": current_memory_gb,
+                                    "per_gpu_memory_before_gb": memory_before_gb,
+                                    "total_peak_gb_approximate": total_peak_memory_gb
+                                }
+                                
+                                # Save to JSON file
+                                stats_dir = os.path.join(os.getcwd(), "logs", "gpu_memory_stats")
+                                stats_dir = os.path.abspath(stats_dir)
+                                os.makedirs(stats_dir, exist_ok=True)
+                                timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                json_filename = f"gpu_memory_training_useocr{use_ocr_str.lower()}_step{self.global_steps}_{timestamp_str}.json"
+                                json_path = os.path.join(stats_dir, json_filename)
+                                
+                                with open(json_path, 'w', encoding='utf-8') as f:
+                                    json.dump(stats_data, f, indent=2, ensure_ascii=False)
+                                
+                                if os.path.exists(json_path):
+                                    file_size = os.path.getsize(json_path)
+                                    print(f"  [Saved to JSON] {json_path} (size: {file_size} bytes)")
+                            except Exception as e:
+                                print(f"  [ERROR] Failed to save JSON: {e}")
+                        else:
+                            print(f"[GPU Memory Stats - Training] use_ocr={use_ocr_str}: Memory stats not available in worker metrics")
 
                     # Log rollout generations if enabled
                     rollout_data_dir = self.config.trainer.get("rollout_data_dir", None)

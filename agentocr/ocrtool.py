@@ -214,12 +214,12 @@ class OCRTool(BaseOCRTool):
         use_precise: bool = True,
         fast_mode: bool = True,
         enable_cache: bool = True,
-        cache_mode: str = "none",
+        cache_mode: str = "segment",
         compact_mode: bool = False,
         compact_symbol: str = COMPACT_NEWLINE_SYMBOL,
         highlight_configs: Optional[List[Dict[str, Any]]] = None,
         enable_perf_stats: bool = True,
-        auto_save_stats: bool = True,
+        auto_save_stats: bool = False,
         stats_save_dir: str = "logs/ocr_stats",
         **kwargs
     ):
@@ -997,13 +997,13 @@ class OCRTool(BaseOCRTool):
             self._perf_monitor.update_segment_cache_memory(self._segment_caches)
         
         # Print batch-level cache statistics (once per batch)
-        if batch_total_segments > 0:
-            self._print_batch_segment_cache_stats(
-                batch_size=len(trajectory_contexts),
-                batch_segments=batch_total_segments,
-                batch_hits=batch_total_hits,
-                batch_misses=batch_total_misses
-            )
+        # if batch_total_segments > 0:
+        #     self._print_batch_segment_cache_stats(
+        #         batch_size=len(trajectory_contexts),
+        #         batch_segments=batch_total_segments,
+        #         batch_hits=batch_total_hits,
+        #         batch_misses=batch_total_misses
+        #     )
         
         return image_arrays
     

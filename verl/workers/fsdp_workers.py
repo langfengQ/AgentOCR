@@ -610,6 +610,14 @@ class ActorRolloutRefWorker(Worker):
 
         with self.ulysses_sharding_manager:
             data = self.ulysses_sharding_manager.preprocess_data(data=data)
+            # Get memory before training
+            torch_device = get_torch_device()
+            memory_before = torch_device.memory_allocated() if hasattr(torch_device, 'memory_allocated') else 0
+            
+            # Reset peak memory stats before training to get accurate per-step peak memory
+            if hasattr(torch_device, 'reset_peak_memory_stats'):
+                torch_device.reset_peak_memory_stats()
+            
             # perform training
             with Timer(name="update_policy", logger=None) as timer:
                 metrics = self.actor.update_policy(data=data)
@@ -617,8 +625,18 @@ class ActorRolloutRefWorker(Worker):
             global_num_tokens = data.meta_info["global_token_num"]
             estimated_flops, promised_flops = self.flops_counter.estimate_flops(global_num_tokens, delta_time)
             metrics["perf/mfu/actor"] = estimated_flops * self.config.actor.ppo_epochs / promised_flops / self.world_size
-            metrics["perf/max_memory_allocated_gb"] = get_torch_device().max_memory_allocated() / (1024**3)
-            metrics["perf/max_memory_reserved_gb"] = get_torch_device().max_memory_reserved() / (1024**3)
+            
+            # Get peak memory after training (reset was called before training)
+            # Use max_memory_allocated() which tracks peak since last reset
+            peak_memory_allocated = torch_device.max_memory_allocated() if hasattr(torch_device, 'max_memory_allocated') else 0
+            peak_memory_reserved = torch_device.max_memory_reserved() if hasattr(torch_device, 'max_memory_reserved') else 0
+            current_memory_allocated = torch_device.memory_allocated() if hasattr(torch_device, 'memory_allocated') else 0
+            
+            # Convert to GB
+            metrics["perf/max_memory_allocated_gb"] = peak_memory_allocated / (1024**3)
+            metrics["perf/max_memory_reserved_gb"] = peak_memory_reserved / (1024**3)
+            metrics["perf/current_memory_allocated_gb"] = current_memory_allocated / (1024**3)
+            metrics["perf/memory_before_training_gb"] = memory_before / (1024**3)
             metrics["perf/cpu_memory_used_gb"] = psutil.virtual_memory().used / (1024**3)
 
             lr = self.actor_lr_scheduler.get_last_lr()[0]

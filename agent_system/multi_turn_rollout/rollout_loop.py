@@ -27,6 +27,9 @@ from typing import List, Dict
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.protocol import extract_dataproto_via_active_mask, restore_dataproto_via_active_mask
 import time
+import json
+import os
+from datetime import datetime
 
 class TrajectoryCollector:
     def __init__(self, config, tokenizer: PreTrainedTokenizer, processor=None):
@@ -530,6 +533,12 @@ class TrajectoryCollector:
         self.llm_forward_time = 0
         if is_train:
             gen_batch = gen_batch.repeat(repeat_times=self.config.env.rollout.n, interleave=True)
+        
+        # Get use_ocr config for memory statistics
+        use_ocr = getattr(self.config.ocr, 'use_ocr', False) if hasattr(self.config, 'ocr') else False
+        
+        # Note: In Ray distributed training, driver process may not have direct GPU access.
+        # GPU memory stats are collected in worker processes and returned via metrics.
             
         # Initial observations from the environment
         if self.config.algorithm.filter_groups.enable and is_train:
@@ -553,7 +562,13 @@ class TrajectoryCollector:
         assert len(total_batch_list) == len(total_traj_uid)
         assert len(total_batch_list) == len(totoal_tool_callings)
         
-
+        # Note: In Ray distributed training, the driver process does not have direct GPU access.
+        # GPU memory statistics for inference are not available here.
+        # Training GPU memory stats are collected from worker processes and saved separately.
+        use_ocr_str = "True" if use_ocr else "False"
+        print(f"[GPU Memory Stats - Inference] use_ocr={use_ocr_str}")
+        print(f"  [INFO] Inference GPU memory stats are handled by vLLM/SGLang workers.")
+            
         # Create trajectory data
         gen_batch_output: DataProto = self.gather_rollout_data(
             total_batch_list=total_batch_list,
