@@ -38,6 +38,16 @@ def alfworld_projection(actions: List[str], action_pools: List[List[str]], check
         original_str = actions[i]  # keep the original string
         actions[i] = actions[i].lower()
 
+        # Check that each tag appears at most once
+        action_start_count = original_str.lower().count("<action>")
+        action_end_count = original_str.lower().count("</action>")
+        if action_start_count > 1 or action_end_count > 1:
+            valids[i] = 0
+            actions[i] = ""
+            if check_compression_tag:
+                compression_factors[i] = 1.0
+            continue
+
         # Attempt to extract the substring within <action>...</action>
         start_tag = "<action>"
         end_tag = "</action>"
@@ -61,6 +71,11 @@ def alfworld_projection(actions: List[str], action_pools: List[List[str]], check
         if check_compression_tag:
             comp_start_tag = "<compression>"
             comp_end_tag = "</compression>"
+            comp_start_count = original_str.lower().count(comp_start_tag)
+            comp_end_count = original_str.lower().count(comp_end_tag)
+            if comp_start_count > 1 or comp_end_count > 1:
+                valids[i] = 0
+            
             comp_start_idx = original_str.lower().find(comp_start_tag)
             comp_end_idx = original_str.lower().find(comp_end_tag)
             
@@ -68,28 +83,35 @@ def alfworld_projection(actions: List[str], action_pools: List[List[str]], check
                 try:
                     compression_str = original_str[comp_start_idx + len(comp_start_tag):comp_end_idx].strip()
                     compression_value = float(compression_str)
-                    # Clamp to [1.0, 2.0] (higher values = more compression)
+                    # Clamp to [1.0, 5.0] (higher values = more compression)
                     if math.isnan(compression_value) or not math.isfinite(compression_value):
-                        compression_value = 1.0
+                        compression_value = 5.0
                         # valids[i] = 0
                     elif compression_value < 1.0:
                         compression_value = 1.0
                         # valids[i] = 0
-                    elif compression_value > 2.0:
-                        compression_value = 2.0
+                    elif compression_value > 5.0:
+                        compression_value = 5.0
                         # valids[i] = 0
                     compression_factors[i] = compression_value
                 except:
                     # If parsing fails, default to max compression
-                    compression_factors[i] = 1.0
+                    compression_factors[i] = 5.0
                     # valids[i] = 0
             else:
-                compression_factors[i] = 1.0
+                compression_factors[i] = 5.0
             #     valids[i] = 0
 
         # check <think>...</think>
-        think_start_idx = original_str.find("<think>")
-        think_end_idx = original_str.find("</think>")
+        think_start_tag = "<think>"
+        think_end_tag = "</think>"
+        think_start_count = original_str.count(think_start_tag)
+        think_end_count = original_str.count(think_end_tag)
+        if think_start_count > 1 or think_end_count > 1:
+            valids[i] = 0
+        
+        think_start_idx = original_str.find(think_start_tag)
+        think_end_idx = original_str.find(think_end_tag)
         if think_start_idx == -1 or think_end_idx == -1:
             valids[i] = 0
 

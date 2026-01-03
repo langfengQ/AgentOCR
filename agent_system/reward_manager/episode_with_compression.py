@@ -41,11 +41,11 @@ class EpisodeRewardManager_Compression:
         self.normalize_by_length = normalize_by_length
 
         # Compression related configs
-        self.compression_factor_max = compression_factor_max
+        # self.compression_factor_max = compression_factor_max
         self.compression_reward_coef = compression_reward_coef
         self.compression_failure_penalty_coef = compression_failure_penalty_coef
         self.compression_reward_every_n_steps = compression_reward_every_n_steps
-        assert self.compression_factor_max > 1.0, "compression_factor_max must be greater than 1.0"
+        # assert self.compression_factor_max > 1.0, "compression_factor_max must be greater than 1.0"
         assert self.compression_reward_coef >= 0.0, "compression_reward_coef must be non-negative"
         assert self.compression_failure_penalty_coef >= 0.0, "compression_failure_penalty_coef must be non-negative"
         assert self.compression_reward_every_n_steps >= 1, "compression_reward_every_n_steps must be at least 1"
@@ -53,7 +53,7 @@ class EpisodeRewardManager_Compression:
         # Track global steps for compression reward activation
         self.global_steps = 0
 
-        print(f"Using EpisodeRewardManager_Compression with compression_factor_max: {self.compression_factor_max}, compression_reward_coef: {self.compression_reward_coef}, compression_failure_penalty_coef: {self.compression_failure_penalty_coef}, compression_reward_every_n_steps: {self.compression_reward_every_n_steps}")
+        print(f"Using EpisodeRewardManager_Compression with compression_reward_coef: {self.compression_reward_coef}, compression_failure_penalty_coef: {self.compression_failure_penalty_coef}, compression_reward_every_n_steps: {self.compression_reward_every_n_steps}")
         
     def __call__(self, data: DataProto, return_dict=False):
         """We will expand this function gradually based on the available datasets

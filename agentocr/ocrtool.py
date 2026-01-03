@@ -1254,19 +1254,13 @@ class OCRTool(BaseOCRTool):
                 total_cached += len(cache)
                 total_cache_size_mb += cache.get_stats()['cache_size_mb']
         
-        print(f"[OCR Batch] Envs={batch_size} | "
-              f"BatchSegs={batch_segments} | "
-              f"BatchReused={batch_hits} | "
-              f"BatchRendered={batch_misses} | "
-              f"BatchReuseRate={batch_reuse_rate:.1f}% || "
-              f"CumSegs={cum_total} | "
-              f"CumReused={cum_reused} | "
-              f"CumRendered={cum_rendered} | "
-              f"CumHitRate={cum_hit_rate:.1f}% | "
-              f"CumSavings={cum_savings:.1f}% || "
-              f"CacheEnvs={num_envs} | "
-              f"CachedSegs={total_cached} | "
-              f"CacheSize={total_cache_size_mb:.2f}MB")
+        print(f"[OCR Render] Batch Size={batch_size} | "
+              f"Num_Segments={batch_segments} | "
+              f"Num_Hit={batch_hits} | "
+              f"Num_Miss={batch_misses} | "
+              f"Batch Hit Rate={batch_reuse_rate:.1f}% || "
+              f"Cached_Segments={total_cached} | "
+              f"Cache_Size={total_cache_size_mb:.2f}MB")
     
     def _print_segment_cache_stats(self):
         """Print segment-level cache statistics (summary)."""
