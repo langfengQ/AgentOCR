@@ -698,6 +698,11 @@ class RayPPOTrainer:
         sample_outputs = []
         sample_scores = []
 
+        # Lists to collect prompt and response lengths for statistics
+        prompt_lengths = []
+        response_lengths = []
+        total_token_num = 0
+
         # Add progress bar for validation
         val_progress_bar = tqdm(total=len(self.val_dataloader), desc="Validation Progress")
 
@@ -764,6 +769,26 @@ class RayPPOTrainer:
             output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
             sample_outputs.extend(output_texts)
 
+            # Compute token statistics for this batch (similar to metric_utils._compute_response_info)
+            if "attention_mask" in test_batch.batch and "responses" in test_batch.batch:
+                attention_mask = test_batch.batch["attention_mask"]
+                responses = test_batch.batch["responses"]
+                response_length_dim = responses.shape[-1]
+                
+                # Compute prompt and response lengths
+                prompt_mask = attention_mask[:, :-response_length_dim]
+                response_mask = attention_mask[:, -response_length_dim:]
+                
+                batch_prompt_lengths = prompt_mask.sum(-1).cpu().tolist()
+                batch_response_lengths = response_mask.sum(-1).cpu().tolist()
+                
+                prompt_lengths.extend(batch_prompt_lengths)
+                response_lengths.extend(batch_response_lengths)
+                
+                # Compute total token count
+                batch_token_num = attention_mask.sum().item()
+                total_token_num += batch_token_num
+
             # test_batch = test_batch.union(test_output_gen_batch)
 
             # evaluate using reward_function
@@ -829,6 +854,21 @@ class RayPPOTrainer:
 
         for k, v in success_rate.items():
             metric_dict[f'val/{k}'] = v
+
+        # Add comprehensive token statistics (similar to compute_data_metrics)
+        if prompt_lengths and response_lengths:
+            prompt_lengths_array = np.array(prompt_lengths)
+            response_lengths_array = np.array(response_lengths)
+            
+            # Prompt length statistics
+            metric_dict['val/prompt_length/mean'] = float(np.mean(prompt_lengths_array))
+            metric_dict['val/prompt_length/max'] = float(np.max(prompt_lengths_array))
+            metric_dict['val/prompt_length/min'] = float(np.min(prompt_lengths_array))
+            
+            # Response length statistics
+            metric_dict['val/response_length/mean'] = float(np.mean(response_lengths_array))
+            metric_dict['val/response_length/max'] = float(np.max(response_lengths_array))
+            metric_dict['val/response_length/min'] = float(np.min(response_lengths_array))
 
         return metric_dict
 
