@@ -115,21 +115,16 @@ def search_projection(actions: List[str], check_compression_tag: bool = False) -
                         # Clamp to [1.0, 2.0] (higher values = more compression)
                         if math.isnan(compression_value) or not math.isfinite(compression_value):
                             compression_value = 1.0
-                            # valids[i] = 0
                         elif compression_value < 1.0:
                             compression_value = 1.0
-                            # valids[i] = 0
                         elif compression_value > 2.0:
                             compression_value = 2.0
-                            # valids[i] = 0
                         compression_factors[i] = compression_value
                     except:
                         # If parsing fails, default to max compression
                         compression_factors[i] = 1.0
-                        # valids[i] = 0
                 else:
                     compression_factors[i] = 1.0
-                    # valids[i] = 0
 
     if check_compression_tag:
         return results, valids, compression_factors

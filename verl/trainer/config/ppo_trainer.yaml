@@ -326,9 +326,9 @@ ocr:
   text_color: [0, 0, 0]  # Text color as RGB tuple
   font_path: null  # Path to custom font file (null for default system font)
   min_width: 28  # Minimum image width in pixels
-  max_width: 504 # Maximum image width in pixels
+  max_width: 392 # Maximum image width in pixels
   min_height: 28  # Minimum image height in pixels
-  max_height: 5488  # Maximum image height in pixels, 512xfont_size
+  max_height: 4096  # Maximum image height in pixels, 512xfont_size
   # Compact mode settings (replace newlines with symbols)
   compact_mode:
     enable: False

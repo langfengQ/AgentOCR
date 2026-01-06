@@ -68,7 +68,7 @@ You should first conduct a reasoning process. After completing your reasoning, c
 """
 
 SEARCH_COMPRESSION_TEMPLATE_NO_HIS = """
-Additionally, select an image compression factor between 1.0 and 2.0 for the next image. Higher compression lowers cost, but too much compression harms image quality. You must output the selected value within <compression> </compression> tags (e.g., <compression>1.1</compression>).
+Additionally, select an image compression factor larger than 1.0 for the next image. Higher compression lowers cost, but too much compression harms image quality. You must output the selected value within <compression> </compression> tags (e.g., <compression>1.1</compression>).
 Output format:
 1. Reasoning: state what you found in the image.
 2. <search>...</search> or <answer>...</answer>
@@ -76,7 +76,7 @@ Output format:
 """
 
 SEARCH_COMPRESSION_TEMPLATE = """
-Additionally, select an image compression factor between 1.0 and 2.0 for the next image. Higher compression lowers cost, but too much compression harms image quality. You must output the selected value within <compression> </compression> tags (e.g., <compression>1.1</compression>).
+Additionally, select an image compression factor larger than 1.0 for the next image. Higher compression lowers cost, but too much compression harms image quality. You must output the selected value within <compression> </compression> tags (e.g., <compression>1.1</compression>).
 Output format:
 1. Reasoning: state what you found in the image.
 2. <search>...</search> or <answer>...</answer>
