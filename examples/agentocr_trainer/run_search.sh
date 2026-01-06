@@ -8,8 +8,6 @@ set -x
 export HIGHLIGHT_CONFIGS='<search>:0,0,255;</search>:0,0,255;<information>:255,0,0;</information>:255,0,0'
 ###############
 
-num_cpus_per_env_worker=0.1 # The CPU resource allocated for each environment worker. If you want to use less CPU resources, you can decrease this value.
-
 # OCR settings
 use_ocr=True
 ocr_use_parallel=True
@@ -76,7 +74,7 @@ python3 -m verl.trainer.main_ppo \
     env.max_steps=4 \
     env.rollout.n=$group_size \
     env.history_length=4 \
-    env.search.search_url='http://127.0.0.1:7856/retrieve' \
+    env.search.search_url='http://127.0.0.1:8000/retrieve' \
     env.search.topk=3 \
     ocr.use_ocr=$use_ocr \
     ocr.use_parallel=$ocr_use_parallel \

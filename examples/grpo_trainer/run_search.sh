@@ -76,7 +76,7 @@ python3 -m verl.trainer.main_ppo \
     env.max_steps=4 \
     env.rollout.n=$group_size \
     env.history_length=4 \
-    env.search.search_url='http://127.0.0.1:7856/retrieve' \
+    env.search.search_url='http://127.0.0.1:8000/retrieve' \
     env.search.topk=3 \
     ocr.use_ocr=$use_ocr \
     ocr.use_parallel=$ocr_use_parallel \
