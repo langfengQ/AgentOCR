@@ -29,14 +29,14 @@ group_size=8
 # Set mode based on use_ocr: visual if use_ocr=True, text otherwise
 if [ "$use_ocr" = "True" ]; then
     mode="visual"
-    model=Qwen/Qwen2.5-VL-3B-Instruct
+    model=Qwen/Qwen2.5-VL-7B-Instruct
     max_prompt_length=2048
-    experiment_name="agentocr_selfcompress${agent_select_compression_enable}_coef${compression_reward_coef}_everyn${compression_reward_every_n_steps}_fs${ocr_font_size}_maxwidth${ocr_max_width}_maxprompt${max_prompt_length}_qwen25_vl_3b"
+    experiment_name="agentocr_selfcompress${agent_select_compression_enable}_coef${compression_reward_coef}_everyn${compression_reward_every_n_steps}_fs${ocr_font_size}_maxwidth${ocr_max_width}_maxprompt${max_prompt_length}_qwen25_vl_7b"
 else
     mode="text"
-    model=Qwen/Qwen2.5-3B-Instruct
+    model=Qwen/Qwen2.5-7B-Instruct
     max_prompt_length=5120
-    experiment_name="text_maxprompt${max_prompt_length}_qwen25_3b"
+    experiment_name="text_maxprompt${max_prompt_length}_qwen25_7b"
 fi
 
 # We only use data preparation to indicate the modality and the data size.
@@ -95,7 +95,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger=['console','wandb'] \
     trainer.project_name='AgentOCR_alfworld' \
     trainer.experiment_name=$experiment_name \
-    trainer.n_gpus_per_node=2 \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=10 \
     trainer.test_freq=10 \

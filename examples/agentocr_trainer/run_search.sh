@@ -27,12 +27,12 @@ group_size=8
 # Set mode based on use_ocr: visual if use_ocr=True, text otherwise
 if [ "$use_ocr" = "True" ]; then
     max_prompt_length=4096
-    model=Qwen/Qwen2.5-VL-3B-Instruct
-    experiment_name="ocr_selfcompress${agent_select_compression_enable}_coef${compression_reward_coef}_everyn${compression_reward_every_n_steps}_fs${ocr_font_size}_maxwidth${ocr_max_width}_maxprompt${max_prompt_length}_qwen2.5_vl_3b"
+    model=Qwen/Qwen2.5-VL-7B-Instruct
+    experiment_name="ocr_selfcompress${agent_select_compression_enable}_coef${compression_reward_coef}_everyn${compression_reward_every_n_steps}_fs${ocr_font_size}_maxwidth${ocr_max_width}_maxprompt${max_prompt_length}_qwen2.5_vl_7b"
 else
     max_prompt_length=14000
-    model=Qwen/Qwen2.5-3B-Instruct
-    experiment_name="text_maxprompt${max_prompt_length}_qwen2.5_3b"
+    model=Qwen/Qwen2.5-7B-Instruct
+    experiment_name="text_maxprompt${max_prompt_length}_qwen2.5_7b"
 fi
 
 TRAIN_DATA="$HOME/data/searchR1_processed_direct/train.parquet"
@@ -88,7 +88,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger=['console','wandb'] \
     trainer.project_name='AgentOCR_search' \
     trainer.experiment_name=$experiment_name \
-    trainer.n_gpus_per_node=2 \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=10 \
     trainer.test_freq=-1 \

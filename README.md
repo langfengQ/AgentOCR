@@ -7,7 +7,7 @@
   <a href="#">
     <img src="https://img.shields.io/badge/arXiv-Paper-red?style=flat-square&logo=arxiv" alt="arXiv Paper"></a>
   &nbsp;
-  <a href="https://github.com/langfengQ/verl-agent">
+  <a href="https://github.com/langfengQ/AgentOCR">
     <img src="https://img.shields.io/badge/GitHub-Project-181717?style=flat-square&logo=github" alt="GitHub Project"></a>
 </p>
 
