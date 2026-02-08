@@ -8,49 +8,22 @@ set -x
 export HIGHLIGHT_CONFIGS='<search>:0,0,255;</search>:0,0,255;<information>:255,0,0;</information>:255,0,0'
 ###############
 
-# OCR settings
-use_ocr=True
-ocr_use_parallel=True
-ocr_max_workers=64
-ocr_font_size=12
-ocr_max_width=560
-
-# Self-compression settings
-agent_select_compression_enable=True
-compression_reward_coef=0.01  # base coefficient for compression reward
-compression_reward_every_n_steps=5  # apply compression reward every n steps
-
-# Data settings
 train_data_size=128
 val_data_size=512
 group_size=8
-# Set mode based on use_ocr: visual if use_ocr=True, text otherwise
-if [ "$use_ocr" = "True" ]; then
-    max_prompt_length=4096
-    model=Qwen/Qwen2.5-VL-7B-Instruct
-    experiment_name="ocr_selfcompress${agent_select_compression_enable}_coef${compression_reward_coef}_everyn${compression_reward_every_n_steps}_fs${ocr_font_size}_maxwidth${ocr_max_width}_maxprompt${max_prompt_length}_qwen2.5_vl_7b"
-else
-    max_prompt_length=14000
-    model=Qwen/Qwen2.5-7B-Instruct
-    experiment_name="text_maxprompt${max_prompt_length}_qwen2.5_7b"
-fi
-
-TRAIN_DATA="$HOME/data/searchR1_processed_direct/train.parquet"
-VAL_DATA="$HOME/data/searchR1_processed_direct/test.parquet"
-
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=$TRAIN_DATA \
     data.val_files=$VAL_DATA \
-    data.train_batch_size=$train_data_size \
-    data.val_batch_size=$val_data_size \
-    data.max_prompt_length=$max_prompt_length \
+    data.train_files="$HOME/data/searchR1_processed_direct/train.parquet" \
+    data.val_files="$HOME/data/searchR1_processed_direct/test.parquet" \
+    data.max_prompt_length=14000 \
     data.max_response_length=512 \
     data.filter_overlong_prompts=False \
     data.truncation='right' \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path=$model \
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-7B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
@@ -75,23 +48,15 @@ python3 -m verl.trainer.main_ppo \
     env.rollout.n=$group_size \
     env.history_length=4 \
     env.search.search_url='http://127.0.0.1:8000/retrieve' \
-    env.search.topk=3 \
-    ocr.use_ocr=$use_ocr \
-    ocr.use_parallel=$ocr_use_parallel \
-    ocr.max_workers=$ocr_max_workers \
-    ocr.font_size=$ocr_font_size \
-    ocr.max_width=$ocr_max_width \
-    ocr.agent_select_compression.enable=$agent_select_compression_enable \
-    ocr.agent_select_compression.compression_reward_coef=$compression_reward_coef \
-    ocr.agent_select_compression.compression_reward_every_n_steps=$compression_reward_every_n_steps \
+    ocr.use_ocr=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='AgentOCR_search' \
-    trainer.experiment_name=$experiment_name \
+    trainer.experiment_name='text_qwen2.5_7b' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=10 \
-    trainer.test_freq=-1 \
-    trainer.total_epochs=1 \
+    trainer.test_freq=150 \
+    trainer.total_training_steps=150 \
     trainer.val_before_train=False $@
 

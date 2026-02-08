@@ -1,20 +1,30 @@
-<h3 align="center">
-<b>AgentOCR: Reimagining Agent History via Optical Self-Compression</b>
-</h3>
+<div align="center">
+    <img src="./docs/agentocr/agentocr_logo.png" alt="logo" width="20%" style="vertical-align: middle; display: inline-block;">
+    <h1 style="display: inline-block; vertical-align: middle; margin-left: 20px;">
+        AgentOCR: Reimagining Agent History via Optical Self-Compression
+    </h1>
+</div>
 
 
 <p align="center">
-  <a href="#">
+  <a href="https://arxiv.org/abs/2601.04786">
     <img src="https://img.shields.io/badge/arXiv-Paper-red?style=flat-square&logo=arxiv" alt="arXiv Paper"></a>
   &nbsp;
   <a href="https://github.com/langfengQ/AgentOCR">
     <img src="https://img.shields.io/badge/GitHub-Project-181717?style=flat-square&logo=github" alt="GitHub Project"></a>
+  &nbsp;
+  <a href="https://huggingface.co/collections/langfeng01/agentocr">
+    <img src="https://img.shields.io/badge/HuggingFace-Models-yellow?style=flat-square&logo=huggingface" alt="HuggingFace Models"></a>
+  &nbsp;
+  <a href="https://x.com/langfengq/status/2010609879665492420">
+    <img src="https://img.shields.io/badge/Twitter-Channel-000000?style=flat-square&logo=x" alt="X Channel"></a>
 </p>
+
 
 AgentOCR addresses the critical bottleneck of rapidly growing textual histories in multi-turn LLM agent training by representing observation-action history as **compact rendered images**. This approach exploits the superior information density of visual tokens, substantially reducing token consumption while preserving agent performance.
 
 <p align="center">
-    <img src="./docs/agentocr/agentocr_overview.png" alt="AgentOCR Overview" width="100%">
+    <img src="./docs/agentocr/agentocr_overview.png" alt="AgentOCR Overview" width="90%">
 </p>
 
 **Key Features:**
@@ -66,21 +76,14 @@ python examples/data_preprocess/preprocess_search_r1_dataset.py
 
 Since faiss-gpu is not available via pip, we setup a separate conda environment for the local retrieval server. Running this server will use around 6GB of GPU memory per GPU, so make sure to account for this in your training run configuration. Build Retriever environments:
 ```bash
-# Create and activate the retriever environment with Python 3.10
 conda create -n retriever python=3.10 -y
 conda activate retriever
 
-# Install PyTorch (with GPU support) and related libraries
-conda install numpy==1.26.4 # needed to stop incompatible version of numpy from being installed via pip
+conda install numpy==1.26.4 
 pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 
-# Install other Python packages
 pip install transformers datasets pyserini huggingface_hub
-
-# Install the GPU version of faiss
 conda install faiss-gpu==1.8.0 -c pytorch -c nvidia -y
-
-# Install the API service framework
 pip install uvicorn fastapi
 ```
 
@@ -109,10 +112,10 @@ We provide training scripts for ALFWorld and Search-based QA tasks:
 
 ```bash
 # ALFWorld
-bash examples/agentocr_trainer/run_alfworld.sh
+bash train_alfworld.sh
 
 # Search
-bash examples/agentocr_trainer/run_search.sh
+bash train_search.sh
 ```
 
 # Acknowledgement

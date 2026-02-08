@@ -9,54 +9,28 @@ export HIGHLIGHT_CONFIGS='[Observation]:0,0,255;[Action]:255,0,0'
 
 num_cpus_per_env_worker=0.1 # The CPU resource allocated for each environment worker. If you want to use less CPU resources, you can decrease this value.
 
-# OCR settings
-use_ocr=True
-ocr_use_parallel=True
-ocr_max_workers=64
-ocr_font_size=10
-ocr_max_width=392
-
-# Self-compression settings
-agent_select_compression_enable=True
-compression_reward_coef=0.01  # base coefficient for compression reward
-compression_reward_every_n_steps=5  # apply compression reward every n steps
-
-# Data settings
 train_data_size=16
 val_data_size=128
 group_size=8
 
-# Set mode based on use_ocr: visual if use_ocr=True, text otherwise
-if [ "$use_ocr" = "True" ]; then
-    mode="visual"
-    model=Qwen/Qwen2.5-VL-7B-Instruct
-    max_prompt_length=2048
-    experiment_name="agentocr_selfcompress${agent_select_compression_enable}_coef${compression_reward_coef}_everyn${compression_reward_every_n_steps}_fs${ocr_font_size}_maxwidth${ocr_max_width}_maxprompt${max_prompt_length}_qwen25_vl_7b"
-else
-    mode="text"
-    model=Qwen/Qwen2.5-7B-Instruct
-    max_prompt_length=5120
-    experiment_name="text_maxprompt${max_prompt_length}_qwen25_7b"
-fi
-
 # We only use data preparation to indicate the modality and the data size.
 python3 -m examples.data_preprocess.prepare \
-    --mode $mode \
+    --mode "text" \
     --train_data_size $train_data_size \
-    --val_data_size $val_data_size
+    --val_data_size $((val_data_size * 2))
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=$HOME/data/verl-agent/$mode/train.parquet \
-    data.val_files=$HOME/data/verl-agent/$mode/test.parquet \
+    data.train_files=$HOME/data/verl-agent/text/train.parquet \
+    data.val_files=$HOME/data/verl-agent/text/test.parquet \
     data.train_batch_size=$train_data_size \
     data.val_batch_size=$val_data_size \
-    data.max_prompt_length=$max_prompt_length \
+    data.max_prompt_length=5120 \
     data.max_response_length=512 \
     data.filter_overlong_prompts=False \
     data.truncation='right' \
     data.return_raw_chat=True \
-    actor_rollout_ref.model.path=$model \
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=256 \
@@ -83,21 +57,14 @@ python3 -m verl.trainer.main_ppo \
     env.history_length=50 \
     env.rollout.n=$group_size \
     env.resources_per_worker.num_cpus=$num_cpus_per_env_worker \
-    ocr.use_ocr=$use_ocr \
-    ocr.use_parallel=$ocr_use_parallel \
-    ocr.max_workers=$ocr_max_workers \
-    ocr.font_size=$ocr_font_size \
-    ocr.max_width=$ocr_max_width \
-    ocr.agent_select_compression.enable=$agent_select_compression_enable \
-    ocr.agent_select_compression.compression_reward_coef=$compression_reward_coef \
-    ocr.agent_select_compression.compression_reward_every_n_steps=$compression_reward_every_n_steps \
+    ocr.use_ocr=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='AgentOCR_alfworld' \
-    trainer.experiment_name=$experiment_name \
+    trainer.experiment_name='text_qwen25_7b' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=10 \
     trainer.test_freq=10 \
-    trainer.total_epochs=200 \
+    trainer.total_epochs=150 \
     trainer.val_before_train=True $@
