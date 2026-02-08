@@ -1,10 +1,6 @@
-
-
-<p align="center" style="margin-bottom: -10px;">
-    <img src="./docs/agentocr/agentocr_logo.png" alt="logo" width="20%">
-</p>
 <h1 align="center">
-AgentOCR: Reimagining Agent History via Optical Self-Compression
+  <img src="./docs/agentocr/agentocr_logo.png" alt="logo" width="60" style="vertical-align: middle;">
+  AgentOCR: Reimagining Agent History via Optical Self-Compression
 </h1>
 
 
