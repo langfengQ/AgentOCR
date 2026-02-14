@@ -53,7 +53,7 @@ Install with pip:
 ```bash
 pip3 install gymnasium==0.29.1
 pip3 install stable-baselines3==2.6.0
-pip install alfworld
+pip3 install alfworld
 ```
 
 Download PDDL & Game files and pre-trained MaskRCNN detector (will be stored in `~/.cache/alfworld/`):
