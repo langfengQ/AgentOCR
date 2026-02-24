@@ -14,10 +14,10 @@ group_size=8
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=$TRAIN_DATA \
-    data.val_files=$VAL_DATA \
     data.train_files="$HOME/data/searchR1_processed_direct/train.parquet" \
     data.val_files="$HOME/data/searchR1_processed_direct/test.parquet" \
+    data.train_batch_size=$train_data_size \
+    data.val_batch_size=$val_data_size \
     data.max_prompt_length=14000 \
     data.max_response_length=512 \
     data.filter_overlong_prompts=False \
