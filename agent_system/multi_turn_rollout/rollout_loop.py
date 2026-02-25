@@ -136,6 +136,12 @@ class TrajectoryCollector:
 
                 prompt_with_chat_template = prompt_with_chat_template.replace('<|placeholder|>',
                                                                                 self.processor.image_token)
+                # Store visual token count (reuse already-computed image_grid_thw)
+                memory_visual_token_count = sum(
+                    (image_grid_thw[i].prod() // merge_length).item()
+                    for i in range(len(image_grid_thw))
+                )
+                image_dict['memory_visual_token_count'] = np.float32(memory_visual_token_count)
 
         else:
             raw_prompt = prompt_with_chat_template
@@ -423,7 +429,6 @@ class TrajectoryCollector:
 
             # Update done states
             is_done = np.logical_or(is_done, dones)
-                
             # Update observations for next step
             obs = next_obs
 

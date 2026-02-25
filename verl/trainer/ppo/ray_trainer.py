@@ -686,6 +686,66 @@ class RayPPOTrainer:
         # Log to each configured logger
         self.validation_generations_logger.log(self.config.trainer.logger, samples, self.global_steps)
 
+    def _compute_memory_token_metrics(self, batch, prefix="prompt_length"):
+        """Compute token count metrics for memory (text or visual) from batch data.
+
+        - Visual memory tokens (OCR mode): read memory_visual_token_count stored during
+          preprocess_single_sample (no redundant computation).
+        - Text memory tokens (non-OCR mode): computed as prompt_length - min(prompt_length)
+          within the same trajectory. The minimum represents the template without memory.
+
+        Uses active_masks to determine which entries to include in statistics.
+
+        Args:
+            batch: DataProto with batch (attention_mask, responses) and non_tensor_batch
+                   (traj_uid, active_masks, and optionally memory_visual_token_count).
+            prefix (str): Metric prefix, e.g. 'prompt_length' or 'val'.
+
+        Returns:
+            dict: A dictionary of memory token metrics (mean/max/min).
+        """
+        metrics = {}
+
+        visual_counts = batch.non_tensor_batch.get('memory_visual_token_count', None)
+        active_masks = batch.non_tensor_batch.get('active_masks', None)
+        mask = np.array(active_masks, dtype=bool) if active_masks is not None else None
+
+        if visual_counts is not None:
+            # OCR mode: visual memory tokens already computed in preprocess_single_sample
+            if mask is None:
+                mask = np.ones(len(visual_counts), dtype=bool)
+            active_visual = visual_counts[mask]
+            if len(active_visual) > 0:
+                metrics[f'{prefix}/memory_tokens/mean'] = float(np.mean(active_visual))
+                metrics[f'{prefix}/memory_tokens/max'] = float(np.max(active_visual))
+                metrics[f'{prefix}/memory_tokens/min'] = float(np.min(active_visual))
+        else:
+            # Text mode: memory tokens = prompt_length - min(prompt_length per trajectory)
+            traj_uids = batch.non_tensor_batch.get('traj_uid', None)
+            if traj_uids is not None and 'attention_mask' in batch.batch and 'responses' in batch.batch:
+                attention_mask = batch.batch['attention_mask']
+                responses = batch.batch['responses']
+                response_length = responses.shape[-1]
+                prompt_lengths = attention_mask[:, :-response_length].sum(-1).cpu().numpy().astype(np.float32)
+
+                # Compute memory tokens: prompt_length - min(prompt_length in same trajectory)
+                memory_text_tokens = np.zeros_like(prompt_lengths)
+                unique_trajs = np.unique(traj_uids)
+                for traj in unique_trajs:
+                    traj_mask = traj_uids == traj
+                    min_prompt_len = prompt_lengths[traj_mask].min()
+                    memory_text_tokens[traj_mask] = prompt_lengths[traj_mask] - min_prompt_len
+
+                if mask is None:
+                    mask = np.ones(len(memory_text_tokens), dtype=bool)
+                active_text = memory_text_tokens[mask]
+                if len(active_text) > 0:
+                    metrics[f'{prefix}/memory_tokens/mean'] = float(np.mean(active_text))
+                    metrics[f'{prefix}/memory_tokens/max'] = float(np.max(active_text))
+                    metrics[f'{prefix}/memory_tokens/min'] = float(np.min(active_text))
+
+        return metrics
+
     def _validate(self):
         reward_tensor_lst = []
         data_source_lst = []
@@ -702,6 +762,9 @@ class RayPPOTrainer:
         prompt_lengths = []
         response_lengths = []
         total_token_num = 0
+
+        # Lists to collect memory visual token counts across validation batches
+        memory_visual_token_counts = []
 
         # Add progress bar for validation
         val_progress_bar = tqdm(total=len(self.val_dataloader), desc="Validation Progress")
@@ -801,6 +864,9 @@ class RayPPOTrainer:
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
             tool_calling_list.append(test_output_gen_batch.non_tensor_batch['tool_callings'])
             traj_uid_list.append(test_output_gen_batch.non_tensor_batch['traj_uid'])
+            # Accumulate memory visual token counts (OCR mode)
+            if 'memory_visual_token_count' in test_batch.non_tensor_batch:
+                memory_visual_token_counts.append(test_batch.non_tensor_batch['memory_visual_token_count'])
             # success rate
             for k in test_batch.non_tensor_batch.keys():
                 if 'success_rate' in k:
@@ -869,6 +935,28 @@ class RayPPOTrainer:
             metric_dict['val/response_length/mean'] = float(np.mean(response_lengths_array))
             metric_dict['val/response_length/max'] = float(np.max(response_lengths_array))
             metric_dict['val/response_length/min'] = float(np.min(response_lengths_array))
+
+        # Add memory token statistics (text tokens or visual tokens, per-step)
+        if memory_visual_token_counts:
+            # OCR mode: visual memory tokens already computed in preprocess_single_sample
+            all_visual_counts = np.concatenate(memory_visual_token_counts, axis=0)
+            if len(all_visual_counts) > 0:
+                metric_dict['val/memory_tokens/mean'] = float(np.mean(all_visual_counts))
+                metric_dict['val/memory_tokens/max'] = float(np.max(all_visual_counts))
+                metric_dict['val/memory_tokens/min'] = float(np.min(all_visual_counts))
+        elif prompt_lengths:
+            # Text mode: memory tokens = prompt_length - min(prompt_length per trajectory)
+            prompt_lengths_arr = np.array(prompt_lengths, dtype=np.float32)
+            memory_text_tokens = np.zeros_like(prompt_lengths_arr)
+            unique_trajs = np.unique(traj_uids)
+            for traj in unique_trajs:
+                traj_mask = traj_uids == traj
+                min_prompt_len = prompt_lengths_arr[traj_mask].min()
+                memory_text_tokens[traj_mask] = prompt_lengths_arr[traj_mask] - min_prompt_len
+            if len(memory_text_tokens) > 0:
+                metric_dict['val/memory_tokens/mean'] = float(np.mean(memory_text_tokens))
+                metric_dict['val/memory_tokens/max'] = float(np.max(memory_text_tokens))
+                metric_dict['val/memory_tokens/min'] = float(np.min(memory_text_tokens))
 
         return metric_dict
 
@@ -1345,6 +1433,10 @@ class RayPPOTrainer:
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+
+                # Memory token statistics (text tokens or visual tokens, per-step)
+                memory_token_metrics = self._compute_memory_token_metrics(batch=batch, prefix="prompt_length")
+                metrics.update(memory_token_metrics)
 
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)

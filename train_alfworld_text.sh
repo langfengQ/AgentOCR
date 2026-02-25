@@ -61,7 +61,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='AgentOCR_alfworld' \
-    trainer.experiment_name='text_qwen25_7b' \
+    trainer.experiment_name='text_qwen25_3b' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=10 \
