@@ -9,16 +9,16 @@ AgentOCR: Reimagining Agent History via Optical Self-Compression
 
 <p align="center">
   <a href="https://arxiv.org/abs/2601.04786">
-    <img src="https://img.shields.io/badge/arXiv-Paper-red?style=flat-square&logo=arxiv" alt="arXiv Paper"></a>
+    <img src="https://img.shields.io/badge/arXiv-Paper-red?logo=arxiv" alt="arXiv Paper"></a>
+  &nbsp;
+  <a href="https://huggingface.co/papers/2601.04786">
+    <img src="https://img.shields.io/badge/HF%20Daily%20Paper-yellow?logo=huggingface" alt="HuggingFace Daily Paper"></a>
   &nbsp;
   <a href="https://github.com/langfengQ/AgentOCR">
-    <img src="https://img.shields.io/badge/GitHub-Project-181717?style=flat-square&logo=github" alt="GitHub Project"></a>
-  &nbsp;
-  <a href="https://huggingface.co/collections/langfeng01/agentocr">
-    <img src="https://img.shields.io/badge/HuggingFace-Models-yellow?style=flat-square&logo=huggingface" alt="HuggingFace Models"></a>
+    <img src="https://img.shields.io/badge/GitHub-Project-181717?logo=github" alt="GitHub Project"></a>
   &nbsp;
   <a href="https://x.com/langfengq/status/2010609879665492420">
-    <img src="https://img.shields.io/badge/Twitter-Channel-000000?style=flat-square&logo=x" alt="X Channel"></a>
+    <img src="https://img.shields.io/badge/Twitter-Channel-000000?logo=x" alt="X Channel"></a>
 </p>
 
 
@@ -43,7 +43,7 @@ conda activate AgentOCR
 pip3 install vllm==0.11.0
 
 pip3 install flash-attn==2.7.4.post1 --no-build-isolation --no-cache-dir
-pip install -e .
+pip3 install -e .
 ```
 
 ## Install Supported Environments

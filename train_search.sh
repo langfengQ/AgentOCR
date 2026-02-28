@@ -53,7 +53,7 @@ python3 -m verl.trainer.main_ppo \
     ocr.max_width=560 \
     ocr.agent_select_compression.enable=True \
     ocr.agent_select_compression.compression_reward_coef=0.01 \
-    ocr.agent_select_compression.compression_reward_every_n_steps=5 \
+    ocr.agent_select_compression.compression_reward_every_n_steps=8 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='AgentOCR_search' \
