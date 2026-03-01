@@ -19,6 +19,9 @@ AgentOCR: Reimagining Agent History via Optical Self-Compression
   &nbsp;
   <a href="https://x.com/langfengq/status/2010609879665492420">
     <img src="https://img.shields.io/badge/Twitter-Channel-000000?logo=x" alt="X Channel"></a>
+  &nbsp;
+  <a href="https://github.com/langfengQ/AgentOCR/blob/master/LICENSE">
+    <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"></a>
 </p>
 
 
